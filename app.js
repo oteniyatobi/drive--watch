@@ -61,7 +61,7 @@ function getSmoothedPredictions(rawPrediction) {
 // SYSTEM THRESHOLDS 
 // ==========================================
 const ASLEEP_THRESHOLD = 0.70;
-const SECONDS_TO_TRIGGER_ALARM = 15;
+const SECONDS_TO_TRIGGER_ALARM = 3;
 const EMERGENCY_CALL_DELAY = 10;
 
 // ==========================================
