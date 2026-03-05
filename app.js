@@ -1,5 +1,5 @@
 // ==========================================
-// DRIVER WATCH - AI DROWSINESS DETECTION
+// DRIVERWATCH ENTERPRISE - LOGIC KERNEL
 // ==========================================
 
 const URL = "./model/";
@@ -15,27 +15,22 @@ let sessionInterval = null;
 let totalAlerts = 0;
 let totalDrowsySeconds = 0;
 let drowsyStartTime = null;
-
-// Track state to prevent spamming the activity log
 let hasLoggedDrowsyWarningThisSession = false;
+let fpsMetrics = { frames: 0, lastTime: Date.now() };
 
 // ==========================================
-// AUDIO FILES
+// SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-// 1. Loud alarm for the driver
 const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
 alarmSound.loop = true;
-
-// 2. Phone ringing sound (simulating calling dispatch)
 const ringingSound = new Audio("https://actions.google.com/sounds/v1/communications/ringback_tone.ogg");
 ringingSound.loop = true;
 
-// 3. Dispatch operator voice (simulated)
 const synth = window.speechSynthesis;
 let dispatchUtterance = null;
 
 // ==========================================
-// PREDICTION SMOOTHING
+// SUBSYSTEM: PREDICTION STABILIZATION
 // ==========================================
 const SMOOTHING_WINDOW = 10;
 let predictionHistory = [];
@@ -63,107 +58,105 @@ function getSmoothedPredictions(rawPrediction) {
 }
 
 // ==========================================
-// THRESHOLDS 
+// SYSTEM THRESHOLDS 
 // ==========================================
 const ASLEEP_THRESHOLD = 0.70;
 const SECONDS_TO_TRIGGER_ALARM = 15;
 const EMERGENCY_CALL_DELAY = 10;
 
 // ==========================================
-// UI ELEMENTS
+// DOM MAPPING 
 // ==========================================
+// Controls
 const startBtn = document.getElementById('start-btn');
 const stopBtn = document.getElementById('stop-btn');
-const statusBadge = document.getElementById('status-badge');
-const badgeIcon = document.getElementById('badge-icon');
-const badgeText = document.getElementById('badge-text');
-const alarmOverlay = document.getElementById('alarm-overlay');
-const emergencyOverlay = document.getElementById('emergency-overlay');
 const dismissAlarmBtn = document.getElementById('dismiss-alarm');
 const cancelEmergencyBtn = document.getElementById('cancel-emergency');
+
+// Navigation
+const navSystemTag = document.getElementById('nav-system-tag');
+const navClock = document.getElementById('nav-clock');
+
+// Camera & Telemetry
+const cameraBadge = document.getElementById('camera-badge');
+const cameraContainer = document.getElementById('camera-container');
 const startupMessage = document.getElementById('startup-message');
-const statusChip = document.getElementById('status-chip');
-const chipText = document.getElementById('chip-text');
+const footerDataStream = document.getElementById('footer-data-stream');
 const liveIndicator = document.getElementById('live-indicator');
-const navStatusText = document.getElementById('nav-status-text');
-const bigStatusIcon = document.getElementById('big-status-icon');
+
+// Data Modules
+const headerStatusDot = document.getElementById('header-status-dot');
+const mainStatusCard = document.getElementById('main-status-card');
 const bigStatusLabel = document.getElementById('big-status-label');
 const bigStatusSub = document.getElementById('big-status-sub');
-const mainStatusCard = document.getElementById('main-status-card');
-const cameraContainer = document.getElementById('camera-container');
-const countdownEl = document.getElementById('emergency-countdown');
 const activityLog = document.getElementById('activity-log');
-const scanLine = document.getElementById('scan-line');
 
-// Emergency Overlay Specific Elements
+// Overlays
+const alarmOverlay = document.getElementById('alarm-overlay');
+const emergencyOverlay = document.getElementById('emergency-overlay');
+const countdownEl = document.getElementById('emergency-countdown');
 const emergencyStatusText = document.getElementById('emergency-status-text');
 const callTimer = document.getElementById('call-timer');
-const callingDots = document.getElementById('calling-dots');
+const transferProgress = document.getElementById('transfer-progress');
 
-// Stats
+// Metrics
 const statUptime = document.getElementById('stat-uptime');
 const statAlerts = document.getElementById('stat-alerts');
 const statDrowsy = document.getElementById('stat-drowsy');
 const statScore = document.getElementById('stat-score');
 
-// Event Listeners
+// Init Clock
+setInterval(() => {
+    navClock.innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
+}, 1000);
+
+// Bindings
 startBtn.addEventListener('click', init);
 stopBtn.addEventListener('click', stopSystem);
 dismissAlarmBtn.addEventListener('click', dismissAlarm);
 cancelEmergencyBtn.addEventListener('click', cancelEmergency);
 
 // ==========================================
-// ACTIVITY LOGGING
+// EVENT LOG KERNEL
 // ==========================================
-function logEvent(message, type = 'info') {
-    // Remove the "empty" log message if it exists
-    const emptyMsg = activityLog.querySelector('.log-empty');
-    if (emptyMsg) {
-        emptyMsg.remove();
-    }
-
+function logEvent(message, type = 't-info') {
     const now = new Date();
-    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const ts = now.toISOString().split('T')[1].substring(0, 11); // Extract 00:00:00.000
 
     const entry = document.createElement('div');
-    entry.className = 'log-entry';
-    entry.innerHTML = `
-        <div class="log-time">${timeString}</div>
-        <div class="log-dot ${type}"></div>
-        <div class="log-message">${message}</div>
-    `;
+    entry.className = `terminal-line ${type}`;
+    entry.innerHTML = `<span class="time">[${ts}]</span> ${message}`;
 
     activityLog.prepend(entry);
 
-    // Keep max 50 entries
     if (activityLog.children.length > 50) {
         activityLog.removeChild(activityLog.lastChild);
     }
 }
 
+document.querySelector('.export-btn').addEventListener('click', () => {
+    activityLog.innerHTML = '<div class="terminal-line">[SYS] Buffer cleared by operator.</div>';
+});
+
 // ==========================================
-// INIT
+// INITIALIZATION SEQUENCE
 // ==========================================
 async function init() {
     startBtn.disabled = true;
-    if (startupMessage) startupMessage.innerHTML = '<p>Loading AI Model weights...</p>';
+    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Fetching Neural Tensors...</div>';
 
     if (synth.getVoices().length === 0) {
         synth.addEventListener('voiceschanged', () => { });
     }
 
-    const modelURL = URL + "model.json";
-    const metadataURL = URL + "metadata.json";
-
     try {
-        logEvent('System booting up. Downloading neural network tensors...', 'info');
-        model = await tmImage.load(modelURL, metadataURL);
+        logEvent('Establishing connection to deep learning nodes...', 't-info');
+        model = await tmImage.load(URL + "model.json", URL + "metadata.json");
         maxPredictions = model.getTotalClasses();
 
-        const flip = true;
-        webcam = new tmImage.Webcam(400, 300, flip);
+        webcam = new tmImage.Webcam(400, 300, true);
 
-        if (startupMessage) startupMessage.innerHTML = '<p>Establishing Camera Connection...</p>';
+        if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Handshaking Optical Feed...</div>';
         await webcam.setup();
 
         if (startupMessage) startupMessage.style.display = 'none';
@@ -172,18 +165,18 @@ async function init() {
 
         document.getElementById("webcam-wrapper").appendChild(webcam.canvas);
 
+        // Build NN Bars
         const labelContainer = document.getElementById("label-container");
         labelContainer.innerHTML = '';
         for (let i = 0; i < maxPredictions; i++) {
-            const className = model.getClassLabels()[i];
-            const cssClass = getClassCSS(className);
+            const className = model.getClassLabels()[i].toUpperCase();
             labelContainer.innerHTML += `
-                <div class="prediction-row" id="pred-row-${i}">
-                    <div class="prediction-name">${className}</div>
-                    <div class="prediction-track">
-                        <div class="prediction-fill ${cssClass}" id="bar-${i}"></div>
+                <div class="nn-row" id="pred-row-${i}">
+                    <div class="nn-label">${className}</div>
+                    <div class="nn-track">
+                        <div class="nn-fill" id="bar-${i}"></div>
                     </div>
-                    <div class="prediction-percent" id="val-${i}">0%</div>
+                    <div class="nn-val" id="val-${i}">0%</div>
                 </div>
             `;
         }
@@ -193,34 +186,46 @@ async function init() {
         sessionStartTime = Date.now();
         totalAlerts = 0;
         totalDrowsySeconds = 0;
+        fpsMetrics = { frames: 0, lastTime: Date.now() };
+
         sessionInterval = setInterval(updateSessionStats, 1000);
 
-        // Turn on AI visual effects
-        scanLine.classList.remove('hidden');
-
+        // Update UI state
         stopBtn.disabled = false;
+        navSystemTag.innerHTML = `SYSTEM: <span class="status-indicator ACTIVE">ACTIVE</span>`;
+        cameraBadge.innerText = 'ONLINE';
+        cameraBadge.className = 'panel-badge ONLINE';
         liveIndicator.classList.add('active');
-        navStatusText.innerText = 'System Active';
-        setStatus('awake', '👁️', 'AWAKE', 'Monitoring', 'Driver is alert and focused');
-        logEvent('System initialization complete. Active monitoring commenced.', 'success');
+
+        setStatus('awake', 'SYSTEM NOMINAL', 'Optical feed nominal. Processing nodes active.');
+        logEvent('Initialization complete. Security protocols engaged.', 't-succ');
 
     } catch (error) {
         if (startupMessage) {
             startupMessage.style.display = 'flex';
-            startupMessage.innerHTML = '<p style="color: var(--accent-red);">Hardware error. Check camera permissions.</p>';
+            startupMessage.innerHTML = '<div class="standby-text" style="color:var(--stat-danger)">CONNECTION REFUSED</div>';
         }
-        console.error("Initialization error:", error);
-        logEvent('Error initializing AI model or camera.', 'danger');
+        logEvent('Critical failure: Unable to mount optical or neural hardware.', 't-crit');
         startBtn.disabled = false;
     }
 }
 
 // ==========================================
-// MAIN LOOP
+// CORE PROCESSING LOOP
 // ==========================================
 async function loop() {
     if (!isRunning) return;
     webcam.update();
+
+    // FPS Calc
+    fpsMetrics.frames++;
+    const now = Date.now();
+    if (now - fpsMetrics.lastTime >= 1000) {
+        footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: ${webcam.canvas.width}x${webcam.canvas.height}`;
+        fpsMetrics.frames = 0;
+        fpsMetrics.lastTime = now;
+    }
+
     await predict();
     window.requestAnimationFrame(loop);
 }
@@ -231,18 +236,23 @@ async function predict() {
     let isAsleep = false;
 
     for (let i = 0; i < maxPredictions; i++) {
-        const value = (prediction[i].probability * 100).toFixed(0);
+        const val = prediction[i].probability;
+        const valueStr = (val * 100).toFixed(1) + "%";
+
         const bar = document.getElementById(`bar-${i}`);
         const valText = document.getElementById(`val-${i}`);
-        const className = prediction[i].className.toLowerCase();
+        const classNameRaw = prediction[i].className.toLowerCase();
 
-        bar.style.width = value + "%";
-        valText.innerText = value + "%";
+        let type = 'neutral';
+        if (classNameRaw.includes('awake')) type = 'awake';
+        if (classNameRaw.includes('sleepy') || classNameRaw.includes('asleep')) type = 'sleepy';
 
-        if (className.includes("sleepy") || className.includes("asleep")) {
-            if (prediction[i].probability >= ASLEEP_THRESHOLD) {
-                isAsleep = true;
-            }
+        bar.className = `nn-fill ${type}`;
+        bar.style.width = `${val * 100}%`;
+        valText.innerText = valueStr;
+
+        if (type === 'sleepy' && val >= ASLEEP_THRESHOLD) {
+            isAsleep = true;
         }
     }
 
@@ -250,7 +260,7 @@ async function predict() {
 }
 
 // ==========================================
-// DROWSINESS LOGIC
+// RULE ENGINE
 // ==========================================
 function handleDrowsinessLogic(isAsleep) {
     if (!alarmOverlay.classList.contains('hidden') || !emergencyOverlay.classList.contains('hidden')) {
@@ -258,23 +268,19 @@ function handleDrowsinessLogic(isAsleep) {
     }
 
     if (isAsleep) {
-        if (!currentSleepSessionStart) {
-            currentSleepSessionStart = Date.now();
-        }
-
+        if (!currentSleepSessionStart) currentSleepSessionStart = Date.now();
         if (!drowsyStartTime) drowsyStartTime = Date.now();
 
-        const continuousSleepSeconds = (Date.now() - currentSleepSessionStart) / 1000;
+        const sec = (Date.now() - currentSleepSessionStart) / 1000;
 
-        // Log the first instance of drowsiness in a single block
-        if (continuousSleepSeconds > 1 && !hasLoggedDrowsyWarningThisSession) {
-            logEvent('Warning: Driver fatigue indicator detected. Initiating critical timer sequence.', 'warning');
+        if (sec > 1 && !hasLoggedDrowsyWarningThisSession) {
+            logEvent('WARNING: Decrease in operator responsiveness detected.', 't-warn');
             hasLoggedDrowsyWarningThisSession = true;
         }
 
-        if (continuousSleepSeconds < SECONDS_TO_TRIGGER_ALARM) {
-            const timeRemaining = Math.ceil(SECONDS_TO_TRIGGER_ALARM - continuousSleepSeconds);
-            setStatus('sleepy', '😑', 'DROWSY', 'Danger!', `Unresponsive for ${Math.floor(continuousSleepSeconds)}s. Alarm in ${timeRemaining}s...`);
+        if (sec < SECONDS_TO_TRIGGER_ALARM) {
+            const timeRemaining = Math.max(0, SECONDS_TO_TRIGGER_ALARM - sec).toFixed(1);
+            setStatus('sleepy', 'CRITICAL FATIGUE', `Autonomic shutdown imminent. T-Minus ${timeRemaining}s`);
         } else {
             triggerAlarm();
         }
@@ -285,54 +291,46 @@ function handleDrowsinessLogic(isAsleep) {
         }
 
         if (hasLoggedDrowsyWarningThisSession && currentSleepSessionStart) {
-            logEvent('Driver consciousness re-established.', 'info');
+            logEvent('Operator responsiveness restored to nominal levels.', 't-info');
         }
 
         currentSleepSessionStart = null;
         hasLoggedDrowsyWarningThisSession = false;
-        setStatus('awake', '👁️', 'AWAKE', 'Monitoring', 'Driver is alert and focused');
+        setStatus('awake', 'SYSTEM NOMINAL', 'Operator parameters stable.');
     }
 }
 
 // ==========================================
-// STATUS UI HELPER
+// UX FEEDBACK
 // ==========================================
-function setStatus(state, icon, badge, chipLabel, description) {
-    cameraContainer.className = 'camera-container ' + state;
+function setStatus(stateCode, title, detail) {
+    cameraContainer.className = `camera-wrapper ${stateCode}`;
+    headerStatusDot.className = `status-dot ${stateCode}`;
+    mainStatusCard.className = `assessment-container ${stateCode}`;
 
-    badgeIcon.innerText = icon;
-    badgeText.innerText = badge;
-
-    statusChip.className = 'status-chip ' + state;
-    chipText.innerText = chipLabel;
-
-    mainStatusCard.className = 'card status-card animate-fade-in ' + state;
-    bigStatusIcon.innerText = icon;
-    bigStatusLabel.innerText = badge;
-    bigStatusLabel.style.color = state === 'awake' ? 'var(--accent-green)' :
-        state === 'sleepy' ? 'var(--accent-red)' :
-            'var(--accent-amber)';
-    bigStatusSub.innerText = description;
+    bigStatusLabel.innerText = title;
+    bigStatusLabel.className = `assessment-value ${stateCode}`;
+    bigStatusSub.innerText = detail;
 }
 
 // ==========================================
-// ALARM & EMERGENCY
+// INCIDENT PROTOCOLS
 // ==========================================
 function triggerAlarm() {
-    logEvent('CRITICAL: Target awake threshold failed. Primary auditory alarm triggered.', 'danger');
+    logEvent('PROTOCOL VIOLATION: Operator incapacitated. Master alarm engaged.', 't-crit');
 
     totalAlerts++;
-    statAlerts.innerText = totalAlerts;
+    statAlerts.innerText = String(totalAlerts).padStart(2, '0');
 
     alarmOverlay.classList.remove('hidden');
-    alarmSound.play().catch(e => console.log("Audio blocked:", e));
+    alarmSound.play().catch(e => console.log(e));
 
     let countdown = EMERGENCY_CALL_DELAY;
-    countdownEl.innerText = countdown;
+    countdownEl.innerText = String(countdown).padStart(2, '0');
 
     countdownInterval = setInterval(() => {
         countdown--;
-        countdownEl.innerText = countdown;
+        countdownEl.innerText = String(countdown).padStart(2, '0');
         if (countdown <= 0) {
             clearInterval(countdownInterval);
             triggerEmergency();
@@ -341,7 +339,7 @@ function triggerAlarm() {
 }
 
 function dismissAlarm() {
-    logEvent('Operator intervention: Protocol aborted. Driver awake.', 'success');
+    logEvent('OVERRIDE: Operator acknowledged alarm. Returning to monitor mode.', 't-succ');
 
     alarmOverlay.classList.add('hidden');
     alarmSound.pause();
@@ -360,7 +358,7 @@ function dismissAlarm() {
 }
 
 function triggerEmergency() {
-    logEvent('EMERGENCY PROTOCOL ENGAGED. Initiating connection to Central Dispatch.', 'danger');
+    logEvent('ESCALATION: Emergency Dispatch Protocol Initiated.', 't-crit');
 
     alarmOverlay.classList.add('hidden');
     emergencyOverlay.classList.remove('hidden');
@@ -372,20 +370,18 @@ function triggerEmergency() {
 }
 
 function startSimulatedCall() {
-    ringingSound.play().catch(e => console.log("Audio blocked:", e));
+    ringingSound.play().catch('');
 
-    emergencyStatusText.innerText = "Driver unresponsive — Calling dispatch...";
-    callTimer.innerText = "Calling...";
-    callingDots.style.display = "flex";
+    emergencyStatusText.innerText = "REQUESTING UPLINK...";
+    transferProgress.style.width = "10%";
 
     emergencyTimer = setTimeout(() => {
         ringingSound.pause();
         ringingSound.currentTime = 0;
 
-        emergencyStatusText.innerText = "Call connected. Transmitting GPS coordinates...";
-        callingDots.style.display = "none";
-
-        logEvent('Call successfully patched to Central Dispatch queue.', 'info');
+        emergencyStatusText.innerText = "UPLINK SECURED. TRANSMITTING DATA...";
+        transferProgress.style.width = "100%";
+        logEvent('V-BAND Uplink established. Transmitting operator telemetry.', 't-warn');
 
         let seconds = 0;
         simulatedCallInterval = setInterval(() => {
@@ -401,35 +397,28 @@ function startSimulatedCall() {
 }
 
 function playDispatcherVoice() {
-    const message = "Emergency Alert. Driver Watch system reports an unresponsive driver. GPS location verified. Trying to establish contact with driver. Hello? Can you hear me?";
-
-    dispatchUtterance = new SpeechSynthesisUtterance(message);
+    const msg = "Automated distress signal received from DriverWatch System. Operator unresponsive. GPS coordinates locked. Dispatching units to your location.";
+    dispatchUtterance = new SpeechSynthesisUtterance(msg);
     dispatchUtterance.rate = 0.95;
-    dispatchUtterance.pitch = 1.0;
 
     const voices = synth.getVoices();
     const systemVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
-    if (systemVoice) {
-        dispatchUtterance.voice = systemVoice;
-    }
+    if (systemVoice) dispatchUtterance.voice = systemVoice;
 
     synth.speak(dispatchUtterance);
 }
 
 function cancelEmergency() {
-    logEvent('Emergency protocol overriden by operator (False Alarm).', 'success');
+    logEvent('ABORT: Dispatch sequence terminated by local operator.', 't-info');
 
     emergencyOverlay.classList.add('hidden');
 
     alarmSound.pause();
     alarmSound.currentTime = 0;
-
     ringingSound.pause();
     ringingSound.currentTime = 0;
 
-    if (synth && synth.speaking) {
-        synth.cancel();
-    }
+    if (synth && synth.speaking) synth.cancel();
 
     clearTimeout(emergencyTimer);
     clearInterval(simulatedCallInterval);
@@ -444,7 +433,7 @@ function cancelEmergency() {
 }
 
 // ==========================================
-// SESSION STATS
+// TELEMETRY UPDATER
 // ==========================================
 function updateSessionStats() {
     if (!sessionStartTime) return;
@@ -460,63 +449,43 @@ function updateSessionStats() {
     }
     statDrowsy.innerText = Math.round(currentDrowsy) + 's';
 
-    const alertness = elapsed > 0 ? Math.max(0, Math.round(100 - (currentDrowsy / elapsed * 100))) : 100;
-    statScore.innerText = alertness + '%';
-    statScore.style.color = alertness >= 80 ? 'var(--accent-green)' :
-        alertness >= 50 ? 'var(--accent-amber)' :
-            'var(--accent-red)';
+    const alertness = elapsed > 0 ? Math.max(0, (100 - (currentDrowsy / elapsed * 100))) : 100;
+    statScore.innerText = alertness.toFixed(1) + '%';
+    statScore.style.color = alertness >= 80 ? 'var(--stat-active)' :
+        alertness >= 50 ? 'var(--stat-warn)' : 'var(--stat-danger)';
 }
 
 // ==========================================
-// STOP SYSTEM
+// TERMINATION
 // ==========================================
 function stopSystem() {
-    logEvent('System shut down by operator order.', 'info');
+    logEvent('System shut down by operator command.', 't-info');
 
     isRunning = false;
     predictionHistory = [];
     clearInterval(sessionInterval);
 
-    // Turn off AI visual effects
-    scanLine.classList.add('hidden');
-
     if (webcam) {
         webcam.stop();
-        const wrapper = document.getElementById("webcam-wrapper");
-        wrapper.innerHTML = `
-            <div class="webcam-placeholder" id="startup-message">
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                    <circle cx="12" cy="13" r="4"/>
+        document.getElementById("webcam-wrapper").innerHTML = `
+            <div class="standby-screen" id="startup-message">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
                 </svg>
-                <p>System stopped. Click <strong>Start System</strong> to resume.</p>
+                <div class="standby-text">SYSTEM OFFLINE</div>
             </div>
         `;
     }
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
+
+    navSystemTag.innerHTML = `SYSTEM: <span class="status-indicator">STANDBY</span>`;
+    cameraBadge.innerText = 'INACTIVE';
+    cameraBadge.className = 'panel-badge';
     liveIndicator.classList.remove('active');
-    navStatusText.innerText = 'System Offline';
-    cameraContainer.className = 'camera-container';
+    footerDataStream.innerText = `FPS: -- | RES: --`;
 
-    badgeIcon.innerText = '⏸️';
-    badgeText.innerText = 'OFFLINE';
-
-    statusChip.className = 'status-chip';
-    chipText.innerText = 'Stopped';
-
-    mainStatusCard.className = 'card status-card';
-    bigStatusIcon.innerText = '⏸️';
-    bigStatusLabel.innerText = 'Offline';
-    bigStatusLabel.style.color = 'var(--text-secondary)';
-    bigStatusSub.innerText = 'System is not active';
-}
-
-function getClassCSS(className) {
-    const lower = className.toLowerCase();
-    if (lower.includes('awake')) return 'awake';
-    if (lower.includes('sleepy') || lower.includes('asleep')) return 'sleepy';
-    if (lower.includes('neutral')) return 'neutral';
-    return 'other';
+    setStatus('neutral', 'NOT DETECTED', 'Awaiting Initialization...');
 }
