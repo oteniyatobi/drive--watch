@@ -25,7 +25,7 @@
 
     <div class="app">
         <!-- Top Navigation Bar -->
-        <nav class="top-bar">
+        <nav class="top-bar animate-fade-in">
             <div class="logo">
                 <div class="logo-icon">
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -40,24 +40,45 @@
                 </div>
                 <span class="logo-text">DriverWatch<span class="logo-dot">.</span></span>
             </div>
-            <div class="nav-status">
-                <div class="live-dot" id="live-indicator"></div>
-                <span id="nav-status-text">System Offline</span>
+            <div class="nav-right">
+                <div class="nav-status">
+                    <div class="live-dot" id="live-indicator"></div>
+                    <span id="nav-status-text">System Offline</span>
+                </div>
+                <button class="icon-btn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                        </path>
+                    </svg>
+                </button>
             </div>
         </nav>
 
         <!-- Main Dashboard -->
         <div class="dashboard">
             <!-- Left: Camera Feed -->
-            <div class="camera-section">
+            <div class="camera-section animate-slide-up" style="animation-delay: 0.1s;">
                 <div class="section-header">
-                    <h2>Camera Feed</h2>
+                    <h2>Live Camera Feed</h2>
                     <div class="status-chip" id="status-chip">
                         <div class="chip-dot"></div>
                         <span id="chip-text">Idle</span>
                     </div>
                 </div>
+
                 <div class="camera-container" id="camera-container">
+                    <!-- AI Aesthetic Overlays -->
+                    <div class="camera-grid-overlay"></div>
+                    <div class="camera-scan-line hidden" id="scan-line"></div>
+                    <div class="camera-corners">
+                        <div class="corner tl"></div>
+                        <div class="corner tr"></div>
+                        <div class="corner bl"></div>
+                        <div class="corner br"></div>
+                    </div>
+
                     <div id="webcam-wrapper">
                         <div class="webcam-placeholder" id="startup-message">
                             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -69,6 +90,7 @@
                             <p>Click <strong>Start System</strong> to begin monitoring</p>
                         </div>
                     </div>
+
                     <!-- Status overlay on camera -->
                     <div class="camera-overlay-badge" id="status-badge">
                         <span id="badge-icon">👁️</span>
@@ -97,7 +119,7 @@
             <!-- Right: Stats & Predictions -->
             <div class="stats-section">
                 <!-- Detection Status Card -->
-                <div class="card status-card" id="main-status-card">
+                <div class="card status-card animate-slide-up" id="main-status-card" style="animation-delay: 0.2s;">
                     <div class="card-header">
                         <h3>Detection Status</h3>
                     </div>
@@ -108,39 +130,52 @@
                     </div>
                 </div>
 
-                <!-- Live Predictions -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>AI Confidence</h3>
-                        <div class="card-badge">LIVE</div>
+                <div class="split-cards">
+                    <!-- Session Stats -->
+                    <div class="card animate-slide-up" style="animation-delay: 0.3s;">
+                        <div class="card-header">
+                            <h3>Session Stats</h3>
+                        </div>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-uptime">00:00</div>
+                                <div class="stat-label">Session Time</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-alerts">0</div>
+                                <div class="stat-label">Alerts</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-drowsy">0s</div>
+                                <div class="stat-label">Drowsy Time</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-score">100%</div>
+                                <div class="stat-label">Alertness</div>
+                            </div>
+                        </div>
                     </div>
-                    <div id="label-container" class="predictions">
-                        <div class="prediction-empty">No data yet</div>
+
+                    <!-- Live Predictions -->
+                    <div class="card animate-slide-up" style="animation-delay: 0.4s;">
+                        <div class="card-header">
+                            <h3>AI Confidence</h3>
+                            <div class="card-badge">LIVE</div>
+                        </div>
+                        <div id="label-container" class="predictions">
+                            <div class="prediction-empty">No data yet</div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Session Stats -->
-                <div class="card">
+                <!-- Activity Log -->
+                <div class="card animate-slide-up"
+                    style="flex-grow: 1; display: flex; flex-direction: column; animation-delay: 0.5s;">
                     <div class="card-header">
-                        <h3>Session Stats</h3>
+                        <h3>Activity Log</h3>
                     </div>
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <div class="stat-value" id="stat-uptime">00:00</div>
-                            <div class="stat-label">Session Time</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value" id="stat-alerts">0</div>
-                            <div class="stat-label">Alerts Triggered</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value" id="stat-drowsy">0s</div>
-                            <div class="stat-label">Drowsy Time</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value" id="stat-score">100%</div>
-                            <div class="stat-label">Alertness Score</div>
-                        </div>
+                    <div class="activity-log" id="activity-log">
+                        <div class="log-empty">Waiting for system initialization...</div>
                     </div>
                 </div>
             </div>

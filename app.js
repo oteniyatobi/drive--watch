@@ -16,6 +16,9 @@ let totalAlerts = 0;
 let totalDrowsySeconds = 0;
 let drowsyStartTime = null;
 
+// Track state to prevent spamming the activity log
+let hasLoggedDrowsyWarningThisSession = false;
+
 // ==========================================
 // AUDIO FILES
 // ==========================================
@@ -28,13 +31,11 @@ const ringingSound = new Audio("https://actions.google.com/sounds/v1/communicati
 ringingSound.loop = true;
 
 // 3. Dispatch operator voice (simulated)
-// Using Web Speech API for a robotic but clear "dispatch" voice
 const synth = window.speechSynthesis;
 let dispatchUtterance = null;
 
 // ==========================================
 // PREDICTION SMOOTHING
-// Averages the last N frames to reduce noise
 // ==========================================
 const SMOOTHING_WINDOW = 10;
 let predictionHistory = [];
@@ -61,12 +62,16 @@ function getSmoothedPredictions(rawPrediction) {
     return smoothed;
 }
 
-// Thresholds
+// ==========================================
+// THRESHOLDS 
+// ==========================================
 const ASLEEP_THRESHOLD = 0.70;
 const SECONDS_TO_TRIGGER_ALARM = 15;
 const EMERGENCY_CALL_DELAY = 10;
 
-// UI Elements
+// ==========================================
+// UI ELEMENTS
+// ==========================================
 const startBtn = document.getElementById('start-btn');
 const stopBtn = document.getElementById('stop-btn');
 const statusBadge = document.getElementById('status-badge');
@@ -87,6 +92,8 @@ const bigStatusSub = document.getElementById('big-status-sub');
 const mainStatusCard = document.getElementById('main-status-card');
 const cameraContainer = document.getElementById('camera-container');
 const countdownEl = document.getElementById('emergency-countdown');
+const activityLog = document.getElementById('activity-log');
+const scanLine = document.getElementById('scan-line');
 
 // Emergency Overlay Specific Elements
 const emergencyStatusText = document.getElementById('emergency-status-text');
@@ -106,13 +113,41 @@ dismissAlarmBtn.addEventListener('click', dismissAlarm);
 cancelEmergencyBtn.addEventListener('click', cancelEmergency);
 
 // ==========================================
+// ACTIVITY LOGGING
+// ==========================================
+function logEvent(message, type = 'info') {
+    // Remove the "empty" log message if it exists
+    const emptyMsg = activityLog.querySelector('.log-empty');
+    if (emptyMsg) {
+        emptyMsg.remove();
+    }
+
+    const now = new Date();
+    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = `
+        <div class="log-time">${timeString}</div>
+        <div class="log-dot ${type}"></div>
+        <div class="log-message">${message}</div>
+    `;
+
+    activityLog.prepend(entry);
+
+    // Keep max 50 entries
+    if (activityLog.children.length > 50) {
+        activityLog.removeChild(activityLog.lastChild);
+    }
+}
+
+// ==========================================
 // INIT
 // ==========================================
 async function init() {
     startBtn.disabled = true;
-    if (startupMessage) startupMessage.innerHTML = '<p>Loading AI Model...</p>';
+    if (startupMessage) startupMessage.innerHTML = '<p>Loading AI Model weights...</p>';
 
-    // Pre-load voices for the dispatch simulation
     if (synth.getVoices().length === 0) {
         synth.addEventListener('voiceschanged', () => { });
     }
@@ -121,13 +156,14 @@ async function init() {
     const metadataURL = URL + "metadata.json";
 
     try {
+        logEvent('System booting up. Downloading neural network tensors...', 'info');
         model = await tmImage.load(modelURL, metadataURL);
         maxPredictions = model.getTotalClasses();
 
         const flip = true;
         webcam = new tmImage.Webcam(400, 300, flip);
 
-        if (startupMessage) startupMessage.innerHTML = '<p>Requesting Camera Access...</p>';
+        if (startupMessage) startupMessage.innerHTML = '<p>Establishing Camera Connection...</p>';
         await webcam.setup();
 
         if (startupMessage) startupMessage.style.display = 'none';
@@ -159,17 +195,22 @@ async function init() {
         totalDrowsySeconds = 0;
         sessionInterval = setInterval(updateSessionStats, 1000);
 
+        // Turn on AI visual effects
+        scanLine.classList.remove('hidden');
+
         stopBtn.disabled = false;
         liveIndicator.classList.add('active');
         navStatusText.innerText = 'System Active';
         setStatus('awake', '👁️', 'AWAKE', 'Monitoring', 'Driver is alert and focused');
+        logEvent('System initialization complete. Active monitoring commenced.', 'success');
 
     } catch (error) {
         if (startupMessage) {
             startupMessage.style.display = 'flex';
-            startupMessage.innerHTML = '<p style="color: var(--accent-red);">Error loading model. Check console for details.</p>';
+            startupMessage.innerHTML = '<p style="color: var(--accent-red);">Hardware error. Check camera permissions.</p>';
         }
         console.error("Initialization error:", error);
+        logEvent('Error initializing AI model or camera.', 'danger');
         startBtn.disabled = false;
     }
 }
@@ -225,6 +266,12 @@ function handleDrowsinessLogic(isAsleep) {
 
         const continuousSleepSeconds = (Date.now() - currentSleepSessionStart) / 1000;
 
+        // Log the first instance of drowsiness in a single block
+        if (continuousSleepSeconds > 1 && !hasLoggedDrowsyWarningThisSession) {
+            logEvent('Warning: Driver fatigue indicator detected. Initiating critical timer sequence.', 'warning');
+            hasLoggedDrowsyWarningThisSession = true;
+        }
+
         if (continuousSleepSeconds < SECONDS_TO_TRIGGER_ALARM) {
             const timeRemaining = Math.ceil(SECONDS_TO_TRIGGER_ALARM - continuousSleepSeconds);
             setStatus('sleepy', '😑', 'DROWSY', 'Danger!', `Unresponsive for ${Math.floor(continuousSleepSeconds)}s. Alarm in ${timeRemaining}s...`);
@@ -237,7 +284,12 @@ function handleDrowsinessLogic(isAsleep) {
             drowsyStartTime = null;
         }
 
+        if (hasLoggedDrowsyWarningThisSession && currentSleepSessionStart) {
+            logEvent('Driver consciousness re-established.', 'info');
+        }
+
         currentSleepSessionStart = null;
+        hasLoggedDrowsyWarningThisSession = false;
         setStatus('awake', '👁️', 'AWAKE', 'Monitoring', 'Driver is alert and focused');
     }
 }
@@ -254,7 +306,7 @@ function setStatus(state, icon, badge, chipLabel, description) {
     statusChip.className = 'status-chip ' + state;
     chipText.innerText = chipLabel;
 
-    mainStatusCard.className = 'card status-card ' + state;
+    mainStatusCard.className = 'card status-card animate-fade-in ' + state;
     bigStatusIcon.innerText = icon;
     bigStatusLabel.innerText = badge;
     bigStatusLabel.style.color = state === 'awake' ? 'var(--accent-green)' :
@@ -267,12 +319,12 @@ function setStatus(state, icon, badge, chipLabel, description) {
 // ALARM & EMERGENCY
 // ==========================================
 function triggerAlarm() {
+    logEvent('CRITICAL: Target awake threshold failed. Primary auditory alarm triggered.', 'danger');
+
     totalAlerts++;
     statAlerts.innerText = totalAlerts;
 
     alarmOverlay.classList.remove('hidden');
-
-    // Play the loud alarm clock sound
     alarmSound.play().catch(e => console.log("Audio blocked:", e));
 
     let countdown = EMERGENCY_CALL_DELAY;
@@ -289,13 +341,17 @@ function triggerAlarm() {
 }
 
 function dismissAlarm() {
+    logEvent('Operator intervention: Protocol aborted. Driver awake.', 'success');
+
     alarmOverlay.classList.add('hidden');
     alarmSound.pause();
     alarmSound.currentTime = 0;
 
     clearInterval(countdownInterval);
     clearTimeout(emergencyTimer);
+
     currentSleepSessionStart = null;
+    hasLoggedDrowsyWarningThisSession = false;
 
     if (drowsyStartTime) {
         totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
@@ -304,11 +360,11 @@ function dismissAlarm() {
 }
 
 function triggerEmergency() {
-    // Hide the initial alarm, show the emergency call screen
+    logEvent('EMERGENCY PROTOCOL ENGAGED. Initiating connection to Central Dispatch.', 'danger');
+
     alarmOverlay.classList.add('hidden');
     emergencyOverlay.classList.remove('hidden');
 
-    // Stop the alarm clock, start the phone ringing
     alarmSound.pause();
     alarmSound.currentTime = 0;
 
@@ -316,24 +372,21 @@ function triggerEmergency() {
 }
 
 function startSimulatedCall() {
-    // 1. Start ringing sound
     ringingSound.play().catch(e => console.log("Audio blocked:", e));
 
     emergencyStatusText.innerText = "Driver unresponsive — Calling dispatch...";
     callTimer.innerText = "Calling...";
     callingDots.style.display = "flex";
 
-    // 2. Wait 6 seconds (ringing), then "Answer" the call
     emergencyTimer = setTimeout(() => {
-        // Stop ringing
         ringingSound.pause();
         ringingSound.currentTime = 0;
 
-        // Update UI to show call connected
         emergencyStatusText.innerText = "Call connected. Transmitting GPS coordinates...";
         callingDots.style.display = "none";
 
-        // Start call duration timer
+        logEvent('Call successfully patched to Central Dispatch queue.', 'info');
+
         let seconds = 0;
         simulatedCallInterval = setInterval(() => {
             seconds++;
@@ -342,21 +395,18 @@ function startSimulatedCall() {
             callTimer.innerText = `${m}:${s}`;
         }, 1000);
 
-        // 3. Play simulated dispatcher voice reading coordinates/alert
         playDispatcherVoice();
 
     }, 6000);
 }
 
 function playDispatcherVoice() {
-    // Uses the browser's built-in text-to-speech to sound like an automated dispatch system
     const message = "Emergency Alert. Driver Watch system reports an unresponsive driver. GPS location verified. Trying to establish contact with driver. Hello? Can you hear me?";
 
     dispatchUtterance = new SpeechSynthesisUtterance(message);
     dispatchUtterance.rate = 0.95;
     dispatchUtterance.pitch = 1.0;
 
-    // Try to find an English (US or UK) voice
     const voices = synth.getVoices();
     const systemVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
     if (systemVoice) {
@@ -367,7 +417,8 @@ function playDispatcherVoice() {
 }
 
 function cancelEmergency() {
-    // Clean up everything related to the emergency state
+    logEvent('Emergency protocol overriden by operator (False Alarm).', 'success');
+
     emergencyOverlay.classList.add('hidden');
 
     alarmSound.pause();
@@ -377,13 +428,14 @@ function cancelEmergency() {
     ringingSound.currentTime = 0;
 
     if (synth && synth.speaking) {
-        synth.cancel(); // Stop talking
+        synth.cancel();
     }
 
     clearTimeout(emergencyTimer);
     clearInterval(simulatedCallInterval);
 
     currentSleepSessionStart = null;
+    hasLoggedDrowsyWarningThisSession = false;
 
     if (drowsyStartTime) {
         totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
@@ -419,9 +471,14 @@ function updateSessionStats() {
 // STOP SYSTEM
 // ==========================================
 function stopSystem() {
+    logEvent('System shut down by operator order.', 'info');
+
     isRunning = false;
     predictionHistory = [];
     clearInterval(sessionInterval);
+
+    // Turn off AI visual effects
+    scanLine.classList.add('hidden');
 
     if (webcam) {
         webcam.stop();
