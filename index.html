@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driver Watch — AI Drowsiness Detection</title>
+    <meta name="description"
+        content="Real-time AI-powered drowsiness detection system to keep drivers safe on the road.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Animated background particles -->
+    <div class="bg-particles">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+
+    <div class="app">
+        <!-- Top Navigation Bar -->
+        <nav class="top-bar">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <circle cx="12" cy="12" r="3" />
+                        <line x1="12" y1="2" x2="12" y2="5" />
+                        <line x1="12" y1="19" x2="12" y2="22" />
+                        <line x1="2" y1="12" x2="5" y2="12" />
+                        <line x1="19" y1="12" x2="22" y2="12" />
+                    </svg>
+                </div>
+                <span class="logo-text">DriverWatch<span class="logo-dot">.</span></span>
+            </div>
+            <div class="nav-status">
+                <div class="live-dot" id="live-indicator"></div>
+                <span id="nav-status-text">System Offline</span>
+            </div>
+        </nav>
+
+        <!-- Main Dashboard -->
+        <div class="dashboard">
+            <!-- Left: Camera Feed -->
+            <div class="camera-section">
+                <div class="section-header">
+                    <h2>Camera Feed</h2>
+                    <div class="status-chip" id="status-chip">
+                        <div class="chip-dot"></div>
+                        <span id="chip-text">Idle</span>
+                    </div>
+                </div>
+                <div class="camera-container" id="camera-container">
+                    <div id="webcam-wrapper">
+                        <div class="webcam-placeholder" id="startup-message">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="1.5" opacity="0.3">
+                                <path
+                                    d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                <circle cx="12" cy="13" r="4" />
+                            </svg>
+                            <p>Click <strong>Start System</strong> to begin monitoring</p>
+                        </div>
+                    </div>
+                    <!-- Status overlay on camera -->
+                    <div class="camera-overlay-badge" id="status-badge">
+                        <span id="badge-icon">👁️</span>
+                        <span id="badge-text">READY</span>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="controls">
+                    <button id="start-btn" class="btn btn-start">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                        Start System
+                    </button>
+                    <button id="stop-btn" class="btn btn-stop" disabled>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="4" width="4" height="16" />
+                            <rect x="14" y="4" width="4" height="16" />
+                        </svg>
+                        Stop System
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right: Stats & Predictions -->
+            <div class="stats-section">
+                <!-- Detection Status Card -->
+                <div class="card status-card" id="main-status-card">
+                    <div class="card-header">
+                        <h3>Detection Status</h3>
+                    </div>
+                    <div class="big-status" id="big-status">
+                        <div class="big-status-icon" id="big-status-icon">😴</div>
+                        <div class="big-status-label" id="big-status-label">Waiting...</div>
+                        <div class="big-status-sub" id="big-status-sub">Start the system to begin detection</div>
+                    </div>
+                </div>
+
+                <!-- Live Predictions -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>AI Confidence</h3>
+                        <div class="card-badge">LIVE</div>
+                    </div>
+                    <div id="label-container" class="predictions">
+                        <div class="prediction-empty">No data yet</div>
+                    </div>
+                </div>
+
+                <!-- Session Stats -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Session Stats</h3>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-uptime">00:00</div>
+                            <div class="stat-label">Session Time</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-alerts">0</div>
+                            <div class="stat-label">Alerts Triggered</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-drowsy">0s</div>
+                            <div class="stat-label">Drowsy Time</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-score">100%</div>
+                            <div class="stat-label">Alertness Score</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ALARM OVERLAY -->
+    <div id="alarm-overlay" class="fullscreen-alert hidden">
+        <div class="alert-backdrop"></div>
+        <div class="alert-content alarm-content">
+            <div class="alarm-rings">
+                <div class="ring"></div>
+                <div class="ring"></div>
+                <div class="ring"></div>
+            </div>
+            <div class="alarm-icon">⚠️</div>
+            <h1 class="alarm-title">WAKE UP!</h1>
+            <p class="alarm-subtitle">Drowsiness Detected — Stay Alert!</p>
+            <div class="alarm-timer">
+                Emergency services will be contacted in <span id="emergency-countdown">10</span>s
+            </div>
+            <button id="dismiss-alarm" class="btn btn-dismiss">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12" />
+                </svg>
+                I'm Awake
+            </button>
+        </div>
+    </div>
+
+    <!-- EMERGENCY OVERLAY -->
+    <div id="emergency-overlay" class="fullscreen-alert hidden">
+        <div class="alert-backdrop emergency-backdrop"></div>
+        <div class="alert-content emergency-content">
+            <div class="emergency-pulse-ring"></div>
+            <div class="emergency-icon">🚨</div>
+            <h1 class="emergency-title">EMERGENCY ALERT</h1>
+            <p class="emergency-subtitle">Driver unresponsive — Contacting emergency services...</p>
+            <div class="calling-animation">
+                <div class="call-dot"></div>
+                <div class="call-dot"></div>
+                <div class="call-dot"></div>
+            </div>
+            <button id="cancel-emergency" class="btn btn-cancel-emergency">Cancel — False Alarm</button>
+        </div>
+    </div>
+
+    <!-- TensorFlow.js & Teachable Machine -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
