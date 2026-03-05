@@ -8,7 +8,8 @@ let model, webcam, maxPredictions;
 let isRunning = false;
 let emergencyTimer = null;
 let countdownInterval = null;
-let consecutiveAsleepFrames = 0;
+let simulatedCallInterval = null;
+let currentSleepSessionStart = null;
 let sessionStartTime = null;
 let sessionInterval = null;
 let totalAlerts = 0;
@@ -16,26 +17,39 @@ let totalDrowsySeconds = 0;
 let drowsyStartTime = null;
 
 // ==========================================
+// AUDIO FILES
+// ==========================================
+// 1. Loud alarm for the driver
+const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
+alarmSound.loop = true;
+
+// 2. Phone ringing sound (simulating calling dispatch)
+const ringingSound = new Audio("https://actions.google.com/sounds/v1/communications/ringback_tone.ogg");
+ringingSound.loop = true;
+
+// 3. Dispatch operator voice (simulated)
+// Using Web Speech API for a robotic but clear "dispatch" voice
+const synth = window.speechSynthesis;
+let dispatchUtterance = null;
+
+// ==========================================
 // PREDICTION SMOOTHING
 // Averages the last N frames to reduce noise
 // ==========================================
-const SMOOTHING_WINDOW = 10; // Number of frames to average
-let predictionHistory = []; // Array of past prediction arrays
+const SMOOTHING_WINDOW = 10;
+let predictionHistory = [];
 
 function getSmoothedPredictions(rawPrediction) {
-    // Store this frame's probabilities
     const frame = rawPrediction.map(p => ({
         className: p.className,
         probability: p.probability
     }));
     predictionHistory.push(frame);
 
-    // Keep only the last N frames
     if (predictionHistory.length > SMOOTHING_WINDOW) {
         predictionHistory.shift();
     }
 
-    // Average across all stored frames
     const smoothed = frame.map((p, i) => {
         const avgProb = predictionHistory.reduce((sum, f) => sum + f[i].probability, 0) / predictionHistory.length;
         return {
@@ -48,13 +62,9 @@ function getSmoothedPredictions(rawPrediction) {
 }
 
 // Thresholds
-const ASLEEP_THRESHOLD = 0.70; // Lowered from 0.80 since smoothing reduces noise
-const FRAMES_TO_TRIGGER_ALARM = 12; // Slightly faster trigger since smoothing adds lag
+const ASLEEP_THRESHOLD = 0.70;
+const SECONDS_TO_TRIGGER_ALARM = 15;
 const EMERGENCY_CALL_DELAY = 10;
-
-// Alarm sound
-const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
-alarmSound.loop = true;
 
 // UI Elements
 const startBtn = document.getElementById('start-btn');
@@ -78,6 +88,11 @@ const mainStatusCard = document.getElementById('main-status-card');
 const cameraContainer = document.getElementById('camera-container');
 const countdownEl = document.getElementById('emergency-countdown');
 
+// Emergency Overlay Specific Elements
+const emergencyStatusText = document.getElementById('emergency-status-text');
+const callTimer = document.getElementById('call-timer');
+const callingDots = document.getElementById('calling-dots');
+
 // Stats
 const statUptime = document.getElementById('stat-uptime');
 const statAlerts = document.getElementById('stat-alerts');
@@ -97,6 +112,11 @@ async function init() {
     startBtn.disabled = true;
     if (startupMessage) startupMessage.innerHTML = '<p>Loading AI Model...</p>';
 
+    // Pre-load voices for the dispatch simulation
+    if (synth.getVoices().length === 0) {
+        synth.addEventListener('voiceschanged', () => { });
+    }
+
     const modelURL = URL + "model.json";
     const metadataURL = URL + "metadata.json";
 
@@ -110,14 +130,12 @@ async function init() {
         if (startupMessage) startupMessage.innerHTML = '<p>Requesting Camera Access...</p>';
         await webcam.setup();
 
-        // Hide placeholder, show webcam
         if (startupMessage) startupMessage.style.display = 'none';
         await webcam.play();
         window.requestAnimationFrame(loop);
 
         document.getElementById("webcam-wrapper").appendChild(webcam.canvas);
 
-        // Build prediction bars
         const labelContainer = document.getElementById("label-container");
         labelContainer.innerHTML = '';
         for (let i = 0; i < maxPredictions; i++) {
@@ -134,15 +152,13 @@ async function init() {
             `;
         }
 
-        // Start session tracking
-        predictionHistory = []; // Reset smoothing buffer
+        predictionHistory = [];
         isRunning = true;
         sessionStartTime = Date.now();
         totalAlerts = 0;
         totalDrowsySeconds = 0;
         sessionInterval = setInterval(updateSessionStats, 1000);
 
-        // Update UI state
         stopBtn.disabled = false;
         liveIndicator.classList.add('active');
         navStatusText.innerText = 'System Active';
@@ -201,29 +217,28 @@ function handleDrowsinessLogic(isAsleep) {
     }
 
     if (isAsleep) {
-        consecutiveAsleepFrames++;
-
-        // Start tracking drowsy time
-        if (!drowsyStartTime) drowsyStartTime = Date.now();
-
-        if (consecutiveAsleepFrames < FRAMES_TO_TRIGGER_ALARM) {
-            setStatus('sleepy', '😑', 'DROWSY', 'Drowsy', 'Warning: Driver showing signs of fatigue');
+        if (!currentSleepSessionStart) {
+            currentSleepSessionStart = Date.now();
         }
 
-        if (consecutiveAsleepFrames >= FRAMES_TO_TRIGGER_ALARM) {
+        if (!drowsyStartTime) drowsyStartTime = Date.now();
+
+        const continuousSleepSeconds = (Date.now() - currentSleepSessionStart) / 1000;
+
+        if (continuousSleepSeconds < SECONDS_TO_TRIGGER_ALARM) {
+            const timeRemaining = Math.ceil(SECONDS_TO_TRIGGER_ALARM - continuousSleepSeconds);
+            setStatus('sleepy', '😑', 'DROWSY', 'Danger!', `Unresponsive for ${Math.floor(continuousSleepSeconds)}s. Alarm in ${timeRemaining}s...`);
+        } else {
             triggerAlarm();
         }
     } else {
-        // Track accumulated drowsy time
         if (drowsyStartTime) {
             totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
             drowsyStartTime = null;
         }
 
-        consecutiveAsleepFrames = Math.max(0, consecutiveAsleepFrames - 2);
-        if (consecutiveAsleepFrames === 0) {
-            setStatus('awake', '👁️', 'AWAKE', 'Monitoring', 'Driver is alert and focused');
-        }
+        currentSleepSessionStart = null;
+        setStatus('awake', '👁️', 'AWAKE', 'Monitoring', 'Driver is alert and focused');
     }
 }
 
@@ -231,18 +246,14 @@ function handleDrowsinessLogic(isAsleep) {
 // STATUS UI HELPER
 // ==========================================
 function setStatus(state, icon, badge, chipLabel, description) {
-    // Camera container
     cameraContainer.className = 'camera-container ' + state;
 
-    // Badge on camera
     badgeIcon.innerText = icon;
     badgeText.innerText = badge;
 
-    // Status chip
     statusChip.className = 'status-chip ' + state;
     chipText.innerText = chipLabel;
 
-    // Big status card
     mainStatusCard.className = 'card status-card ' + state;
     bigStatusIcon.innerText = icon;
     bigStatusLabel.innerText = badge;
@@ -260,9 +271,10 @@ function triggerAlarm() {
     statAlerts.innerText = totalAlerts;
 
     alarmOverlay.classList.remove('hidden');
+
+    // Play the loud alarm clock sound
     alarmSound.play().catch(e => console.log("Audio blocked:", e));
 
-    // Start emergency countdown
     let countdown = EMERGENCY_CALL_DELAY;
     countdownEl.innerText = countdown;
 
@@ -280,9 +292,10 @@ function dismissAlarm() {
     alarmOverlay.classList.add('hidden');
     alarmSound.pause();
     alarmSound.currentTime = 0;
+
     clearInterval(countdownInterval);
     clearTimeout(emergencyTimer);
-    consecutiveAsleepFrames = 0;
+    currentSleepSessionStart = null;
 
     if (drowsyStartTime) {
         totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
@@ -291,16 +304,86 @@ function dismissAlarm() {
 }
 
 function triggerEmergency() {
+    // Hide the initial alarm, show the emergency call screen
     alarmOverlay.classList.add('hidden');
     emergencyOverlay.classList.remove('hidden');
-    alarmSound.play();
+
+    // Stop the alarm clock, start the phone ringing
+    alarmSound.pause();
+    alarmSound.currentTime = 0;
+
+    startSimulatedCall();
+}
+
+function startSimulatedCall() {
+    // 1. Start ringing sound
+    ringingSound.play().catch(e => console.log("Audio blocked:", e));
+
+    emergencyStatusText.innerText = "Driver unresponsive — Calling dispatch...";
+    callTimer.innerText = "Calling...";
+    callingDots.style.display = "flex";
+
+    // 2. Wait 6 seconds (ringing), then "Answer" the call
+    emergencyTimer = setTimeout(() => {
+        // Stop ringing
+        ringingSound.pause();
+        ringingSound.currentTime = 0;
+
+        // Update UI to show call connected
+        emergencyStatusText.innerText = "Call connected. Transmitting GPS coordinates...";
+        callingDots.style.display = "none";
+
+        // Start call duration timer
+        let seconds = 0;
+        simulatedCallInterval = setInterval(() => {
+            seconds++;
+            const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+            const s = String(seconds % 60).padStart(2, '0');
+            callTimer.innerText = `${m}:${s}`;
+        }, 1000);
+
+        // 3. Play simulated dispatcher voice reading coordinates/alert
+        playDispatcherVoice();
+
+    }, 6000);
+}
+
+function playDispatcherVoice() {
+    // Uses the browser's built-in text-to-speech to sound like an automated dispatch system
+    const message = "Emergency Alert. Driver Watch system reports an unresponsive driver. GPS location verified. Trying to establish contact with driver. Hello? Can you hear me?";
+
+    dispatchUtterance = new SpeechSynthesisUtterance(message);
+    dispatchUtterance.rate = 0.95;
+    dispatchUtterance.pitch = 1.0;
+
+    // Try to find an English (US or UK) voice
+    const voices = synth.getVoices();
+    const systemVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
+    if (systemVoice) {
+        dispatchUtterance.voice = systemVoice;
+    }
+
+    synth.speak(dispatchUtterance);
 }
 
 function cancelEmergency() {
+    // Clean up everything related to the emergency state
     emergencyOverlay.classList.add('hidden');
+
     alarmSound.pause();
     alarmSound.currentTime = 0;
-    consecutiveAsleepFrames = 0;
+
+    ringingSound.pause();
+    ringingSound.currentTime = 0;
+
+    if (synth && synth.speaking) {
+        synth.cancel(); // Stop talking
+    }
+
+    clearTimeout(emergencyTimer);
+    clearInterval(simulatedCallInterval);
+
+    currentSleepSessionStart = null;
 
     if (drowsyStartTime) {
         totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
@@ -314,20 +397,17 @@ function cancelEmergency() {
 function updateSessionStats() {
     if (!sessionStartTime) return;
 
-    // Uptime
     const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
     const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
     const secs = String(elapsed % 60).padStart(2, '0');
     statUptime.innerText = `${mins}:${secs}`;
 
-    // Drowsy time
     let currentDrowsy = totalDrowsySeconds;
     if (drowsyStartTime) {
         currentDrowsy += (Date.now() - drowsyStartTime) / 1000;
     }
     statDrowsy.innerText = Math.round(currentDrowsy) + 's';
 
-    // Alertness score (100% minus % of time drowsy)
     const alertness = elapsed > 0 ? Math.max(0, Math.round(100 - (currentDrowsy / elapsed * 100))) : 100;
     statScore.innerText = alertness + '%';
     statScore.style.color = alertness >= 80 ? 'var(--accent-green)' :
@@ -340,7 +420,7 @@ function updateSessionStats() {
 // ==========================================
 function stopSystem() {
     isRunning = false;
-    predictionHistory = []; // Reset smoothing buffer
+    predictionHistory = [];
     clearInterval(sessionInterval);
 
     if (webcam) {
@@ -376,9 +456,6 @@ function stopSystem() {
     bigStatusSub.innerText = 'System is not active';
 }
 
-// ==========================================
-// HELPER
-// ==========================================
 function getClassCSS(className) {
     const lower = className.toLowerCase();
     if (lower.includes('awake')) return 'awake';
