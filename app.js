@@ -15,9 +15,41 @@ let totalAlerts = 0;
 let totalDrowsySeconds = 0;
 let drowsyStartTime = null;
 
+// ==========================================
+// PREDICTION SMOOTHING
+// Averages the last N frames to reduce noise
+// ==========================================
+const SMOOTHING_WINDOW = 10; // Number of frames to average
+let predictionHistory = []; // Array of past prediction arrays
+
+function getSmoothedPredictions(rawPrediction) {
+    // Store this frame's probabilities
+    const frame = rawPrediction.map(p => ({
+        className: p.className,
+        probability: p.probability
+    }));
+    predictionHistory.push(frame);
+
+    // Keep only the last N frames
+    if (predictionHistory.length > SMOOTHING_WINDOW) {
+        predictionHistory.shift();
+    }
+
+    // Average across all stored frames
+    const smoothed = frame.map((p, i) => {
+        const avgProb = predictionHistory.reduce((sum, f) => sum + f[i].probability, 0) / predictionHistory.length;
+        return {
+            className: p.className,
+            probability: avgProb
+        };
+    });
+
+    return smoothed;
+}
+
 // Thresholds
-const ASLEEP_THRESHOLD = 0.80;
-const FRAMES_TO_TRIGGER_ALARM = 15;
+const ASLEEP_THRESHOLD = 0.70; // Lowered from 0.80 since smoothing reduces noise
+const FRAMES_TO_TRIGGER_ALARM = 12; // Slightly faster trigger since smoothing adds lag
 const EMERGENCY_CALL_DELAY = 10;
 
 // Alarm sound
@@ -103,6 +135,7 @@ async function init() {
         }
 
         // Start session tracking
+        predictionHistory = []; // Reset smoothing buffer
         isRunning = true;
         sessionStartTime = Date.now();
         totalAlerts = 0;
@@ -136,7 +169,8 @@ async function loop() {
 }
 
 async function predict() {
-    const prediction = await model.predict(webcam.canvas);
+    const rawPrediction = await model.predict(webcam.canvas);
+    const prediction = getSmoothedPredictions(rawPrediction);
     let isAsleep = false;
 
     for (let i = 0; i < maxPredictions; i++) {
@@ -306,6 +340,7 @@ function updateSessionStats() {
 // ==========================================
 function stopSystem() {
     isRunning = false;
+    predictionHistory = []; // Reset smoothing buffer
     clearInterval(sessionInterval);
 
     if (webcam) {
