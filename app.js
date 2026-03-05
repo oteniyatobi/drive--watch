@@ -21,7 +21,7 @@ let fpsMetrics = { frames: 0, lastTime: Date.now() };
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
+const alarmSound = new Audio("https://actions.google.com/sounds/v1/transportation/car_horn.ogg");
 alarmSound.loop = true;
 const ringingSound = new Audio("https://actions.google.com/sounds/v1/communications/ringback_tone.ogg");
 ringingSound.loop = true;
@@ -143,6 +143,12 @@ document.querySelector('.export-btn').addEventListener('click', () => {
 // ==========================================
 async function init() {
     startBtn.disabled = true;
+
+    // Unlock Audio Contexts so sounds/simulation play automatically later
+    alarmSound.play().then(() => alarmSound.pause()).catch(e => { });
+    ringingSound.play().then(() => ringingSound.pause()).catch(e => { });
+    if (synth) synth.speak(new SpeechSynthesisUtterance(''));
+
     if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Fetching Neural Tensors...</div>';
 
     if (synth.getVoices().length === 0) {
@@ -150,7 +156,7 @@ async function init() {
     }
 
     try {
-        logEvent('Establishing connection to deep learning nodes...', 't-info');
+        logEvent('Initializing Cabin Camera and AI Fatigue Analysis...', 't-info');
         model = await tmImage.load(URL + "model.json", URL + "metadata.json");
         maxPredictions = model.getTotalClasses();
 
@@ -197,15 +203,15 @@ async function init() {
         cameraBadge.className = 'panel-badge ONLINE';
         liveIndicator.classList.add('active');
 
-        setStatus('awake', 'SYSTEM NOMINAL', 'Optical feed nominal. Processing nodes active.');
-        logEvent('Initialization complete. Security protocols engaged.', 't-succ');
+        setStatus('awake', 'DRIVER ALERT', 'Cabin camera feed nominal. AI actively monitoring.');
+        logEvent('Monitoring active. Driver safety protocols engaged.', 't-succ');
 
     } catch (error) {
         if (startupMessage) {
             startupMessage.style.display = 'flex';
-            startupMessage.innerHTML = '<div class="standby-text" style="color:var(--stat-danger)">CONNECTION REFUSED</div>';
+            startupMessage.innerHTML = '<div class="standby-text" style="color:var(--stat-danger)">CAMERA ERROR</div>';
         }
-        logEvent('Critical failure: Unable to mount optical or neural hardware.', 't-crit');
+        logEvent('Critical failure: Unable to access cabin camera.', 't-crit');
         startBtn.disabled = false;
     }
 }
@@ -274,13 +280,13 @@ function handleDrowsinessLogic(isAsleep) {
         const sec = (Date.now() - currentSleepSessionStart) / 1000;
 
         if (sec > 1 && !hasLoggedDrowsyWarningThisSession) {
-            logEvent('WARNING: Decrease in operator responsiveness detected.', 't-warn');
+            logEvent('WARNING: Driver fatigue visually detected.', 't-warn');
             hasLoggedDrowsyWarningThisSession = true;
         }
 
         if (sec < SECONDS_TO_TRIGGER_ALARM) {
             const timeRemaining = Math.max(0, SECONDS_TO_TRIGGER_ALARM - sec).toFixed(1);
-            setStatus('sleepy', 'CRITICAL FATIGUE', `Autonomic shutdown imminent. T-Minus ${timeRemaining}s`);
+            setStatus('sleepy', 'DROWSY WARNING', `Driver unresponsive. Master alarm in ${timeRemaining}s`);
         } else {
             triggerAlarm();
         }
@@ -291,12 +297,12 @@ function handleDrowsinessLogic(isAsleep) {
         }
 
         if (hasLoggedDrowsyWarningThisSession && currentSleepSessionStart) {
-            logEvent('Operator responsiveness restored to nominal levels.', 't-info');
+            logEvent('Driver alertness restored to nominal levels.', 't-info');
         }
 
         currentSleepSessionStart = null;
         hasLoggedDrowsyWarningThisSession = false;
-        setStatus('awake', 'SYSTEM NOMINAL', 'Operator parameters stable.');
+        setStatus('awake', 'DRIVER ALERT', 'Driver parameters stable.');
     }
 }
 
@@ -317,7 +323,7 @@ function setStatus(stateCode, title, detail) {
 // INCIDENT PROTOCOLS
 // ==========================================
 function triggerAlarm() {
-    logEvent('PROTOCOL VIOLATION: Operator incapacitated. Master alarm engaged.', 't-crit');
+    logEvent('CRITICAL: Driver unresponsive. Master alarm engaged.', 't-crit');
 
     totalAlerts++;
     statAlerts.innerText = String(totalAlerts).padStart(2, '0');
@@ -339,7 +345,7 @@ function triggerAlarm() {
 }
 
 function dismissAlarm() {
-    logEvent('OVERRIDE: Operator acknowledged alarm. Returning to monitor mode.', 't-succ');
+    logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
 
     alarmOverlay.classList.add('hidden');
     alarmSound.pause();
@@ -358,7 +364,7 @@ function dismissAlarm() {
 }
 
 function triggerEmergency() {
-    logEvent('ESCALATION: Emergency Dispatch Protocol Initiated.', 't-crit');
+    logEvent('ESCALATION: Fleet Dispatch / 911 Protocol Initiated.', 't-crit');
 
     alarmOverlay.classList.add('hidden');
     emergencyOverlay.classList.remove('hidden');
@@ -381,7 +387,7 @@ function startSimulatedCall() {
 
         emergencyStatusText.innerText = "UPLINK SECURED. TRANSMITTING DATA...";
         transferProgress.style.width = "100%";
-        logEvent('V-BAND Uplink established. Transmitting operator telemetry.', 't-warn');
+        logEvent('Cellular Uplink established. Transmitting GPS and live feed.', 't-warn');
 
         let seconds = 0;
         simulatedCallInterval = setInterval(() => {
@@ -397,7 +403,7 @@ function startSimulatedCall() {
 }
 
 function playDispatcherVoice() {
-    const msg = "Automated distress signal received from DriverWatch System. Operator unresponsive. GPS coordinates locked. Dispatching units to your location.";
+    const msg = "Emergency alert from DriverWatch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
     dispatchUtterance = new SpeechSynthesisUtterance(msg);
     dispatchUtterance.rate = 0.95;
 

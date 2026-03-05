@@ -38,7 +38,7 @@
         <section class="panel-primary">
 
             <div class="panel-header">
-                <h2>OPTICAL TELEMETRY</h2>
+                <h2>CABIN SENSOR FEED</h2>
                 <div class="panel-badge" id="camera-badge">INACTIVE</div>
             </div>
 
@@ -66,8 +66,8 @@
             </div>
 
             <div class="control-group">
-                <button id="start-btn" class="btn-primary">INITIALIZE NETWORK</button>
-                <button id="stop-btn" class="btn-secondary" disabled>TERMINATE</button>
+                <button id="start-btn" class="btn-primary">START MONITORING</button>
+                <button id="stop-btn" class="btn-secondary" disabled>END SESSION</button>
             </div>
 
         </section>
@@ -78,7 +78,7 @@
             <!-- Core Assessment Node -->
             <div class="data-module">
                 <div class="module-header">
-                    <h3>PRIMARY ASSESSMENT</h3>
+                    <h3>DRIVER STATUS</h3>
                     <div class="status-dot" id="header-status-dot"></div>
                 </div>
 
@@ -91,7 +91,7 @@
             <!-- Neural Network Output -->
             <div class="data-module">
                 <div class="module-header">
-                    <h3>NEURAL NETWORK CONFIDENCE</h3>
+                    <h3>AI FATIGUE ANALYSIS</h3>
                     <span class="muted-tag">REAL-TIME</span>
                 </div>
                 <div class="nn-bars" id="label-container">
@@ -127,11 +127,11 @@
             <!-- System Log -->
             <div class="data-module log-module">
                 <div class="module-header">
-                    <h3>EVENT TERMINAL</h3>
+                    <h3>SYSTEM EVENT LOG</h3>
                     <button class="export-btn">CLEAR</button>
                 </div>
                 <div class="terminal-container" id="activity-log">
-                    <div class="terminal-line">[SYS] Waiting for operator command...</div>
+                    <div class="terminal-line">[SYS] Waiting for monitoring to begin...</div>
                 </div>
             </div>
 
@@ -152,21 +152,20 @@
                 <span>CRITICAL FATIGUE DETECTED</span>
             </div>
 
-            <h2 class="alert-massive">OPERATOR UNRESPONSIVE</h2>
+            <h2 class="alert-massive">DRIVER UNRESPONSIVE</h2>
 
             <div class="readout-box">
                 <div class="readout-row">
                     <span class="readout-lbl">ACTION REQUIRED:</span>
-                    <span class="readout-val">IMMEDIATE MANUAL OVERRIDE</span>
+                    <span class="readout-val">WAKE UP OR PULL OVER</span>
                 </div>
                 <div class="readout-row">
                     <span class="readout-lbl">EMERGENCY DISPATCH IN:</span>
-                    <span class="readout-val countdown-text">T-MINUS <span id="emergency-countdown">10</span>
-                        SECONDS</span>
+                    <span class="readout-val countdown-text"><span id="emergency-countdown">10</span> SECONDS</span>
                 </div>
             </div>
 
-            <button id="dismiss-alarm" class="btn-override">ENGAGE MANUAL OVERRIDE (ACKNOWLEDGE)</button>
+            <button id="dismiss-alarm" class="btn-override">I AM AWAKE (DISMISS ALARM)</button>
         </div>
     </div>
 
@@ -184,8 +183,8 @@
             </div>
 
             <div class="call-interface">
-                <div class="target-node">CONNECTION: LOCAL EMERGENCY SERVICES</div>
-                <div class="call-status" id="emergency-status-text">ESTABLISHING UPLINK...</div>
+                <div class="target-node">CALLING: 911 / FLEET DISPATCH</div>
+                <div class="call-status" id="emergency-status-text">CONNECTING VIA CELLULAR...</div>
 
                 <div class="data-transfer">
                     <div class="transfer-bar">
@@ -194,8 +193,8 @@
                 </div>
 
                 <div class="call-metrics">
-                    <span>UPLINK DURATION: <span id="call-timer">00:00</span></span>
-                    <span id="calling-dots">PACKET LOSS: <span style="color:var(--accent-green)">0.0%</span></span>
+                    <span>CALL DURATION: <span id="call-timer">00:00</span></span>
+                    <span id="calling-dots">SIGNAL: <span style="color:var(--accent-green)">STRONG</span></span>
                 </div>
             </div>
 
