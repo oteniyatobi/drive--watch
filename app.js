@@ -164,7 +164,7 @@ function getSmoothedPredictions(rawPrediction) {
 // ==========================================
 const ASLEEP_THRESHOLD = 0.70;
 const SECONDS_TO_TRIGGER_ALARM = 4;
-const EMERGENCY_CALL_DELAY = 10;
+const EMERGENCY_CALL_DELAY = 3;
 
 // ==========================================
 // DOM MAPPING 
@@ -558,16 +558,35 @@ function startSimulatedCall() {
 }
 
 function playDispatcherVoice() {
-    if (synth.speaking) synth.cancel();
-    const msg = "Emergency alert from DriverWatch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
-    dispatchUtterance = new SpeechSynthesisUtterance(msg);
-    dispatchUtterance.rate = 0.95;
+    try {
+        if (synth.speaking) synth.cancel();
+        synth.resume(); // CRITICAL: Fix for Chrome auto-pause bug
 
-    const voices = synth.getVoices();
-    const systemVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
-    if (systemVoice) dispatchUtterance.voice = systemVoice;
+        const msg = "Emergency alert from DriverWatch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
+        dispatchUtterance = new SpeechSynthesisUtterance(msg);
+        dispatchUtterance.rate = 1.0;
+        dispatchUtterance.pitch = 1.0;
+        dispatchUtterance.volume = 1.0;
 
-    synth.speak(dispatchUtterance);
+        const voices = synth.getVoices();
+        if (voices.length > 0) {
+            const preferredVoice = voices.find(v => v.lang.includes('en-US') && !v.localService) ||
+                voices.find(v => v.lang.includes('en-US')) ||
+                voices[0];
+            dispatchUtterance.voice = preferredVoice;
+        }
+
+        dispatchUtterance.onerror = (e) => {
+            console.error("Speech Error:", e);
+            logEvent("SPEECH_FAILURE: Voice engine blocked. Manual relay suggested.", "t-crit");
+        };
+
+        synth.speak(dispatchUtterance);
+        logEvent('DISPATCH: Voice transmission started.', 't-succ');
+    } catch (e) {
+        console.error("Voice execution failed:", e);
+        logEvent("SYS_VOICE_ERROR: Emergency automation failed.", "t-crit");
+    }
 }
 
 function cancelEmergency() {
