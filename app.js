@@ -37,9 +37,10 @@ let audioCtx = null;
 let alarmOscillator = null;
 let alarmGain = null;
 let isAlarmPlaying = false;
+let warningOscillator = null;
+let warningGain = null;
+let isWarningPlaying = false;
 
-const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-warningSound.loop = true;
 const ringingSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/c/c4/Telephone_ringing.ogg");
 ringingSound.loop = true;
 
@@ -47,44 +48,71 @@ const synth = window.speechSynthesis;
 let dispatchUtterance = null;
 
 function initAudioContext() {
-    if (audioCtx) return;
+    if (audioCtx && audioCtx.state !== 'closed') return;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
 function startHDAudioAlarm() {
     if (isAlarmPlaying) return;
     initAudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
     isAlarmPlaying = true;
 
-    // Create oscillator for high-intensity pulsing
     alarmOscillator = audioCtx.createOscillator();
     alarmGain = audioCtx.createGain();
+    alarmOscillator.type = 'square';
+    alarmOscillator.frequency.setValueAtTime(1400, audioCtx.currentTime);
 
-    alarmOscillator.type = 'square'; // Aggressive square wave
-    alarmOscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // High pitch
-
-    // Pulsing logic
-    const pulseInterval = 0.15; // 150ms
-    for (let i = 0; i < 1000; i++) {
-        const t = audioCtx.currentTime + (i * pulseInterval);
+    // Create constant pulsing
+    const now = audioCtx.currentTime;
+    for (let i = 0; i < 200; i++) {
+        const t = now + (i * 0.15);
         alarmGain.gain.setValueAtTime(0.8, t);
-        alarmGain.gain.setValueAtTime(0, t + 0.075);
+        alarmGain.gain.setValueAtTime(0, t + 0.07);
     }
 
     alarmOscillator.connect(alarmGain);
     alarmGain.connect(audioCtx.destination);
-
     alarmOscillator.start();
 }
 
 function stopHDAudioAlarm() {
     if (alarmOscillator) {
-        try {
-            alarmOscillator.stop();
-        } catch (e) { }
+        try { alarmOscillator.stop(); } catch (e) { }
         alarmOscillator.disconnect();
     }
     isAlarmPlaying = false;
+}
+
+function startHDWarningBeep() {
+    if (isWarningPlaying) return;
+    initAudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    isWarningPlaying = true;
+
+    warningOscillator = audioCtx.createOscillator();
+    warningGain = audioCtx.createGain();
+    warningOscillator.type = 'sine';
+    warningOscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+
+    const now = audioCtx.currentTime;
+    for (let i = 0; i < 100; i++) {
+        const t = now + (i * 0.5);
+        warningGain.gain.setValueAtTime(0.3, t);
+        warningGain.gain.setValueAtTime(0, t + 0.1);
+    }
+
+    warningOscillator.connect(warningGain);
+    warningGain.connect(audioCtx.destination);
+    warningOscillator.start();
+}
+
+function stopHDWarningBeep() {
+    if (warningOscillator) {
+        try { warningOscillator.stop(); } catch (e) { }
+        warningOscillator.disconnect();
+    }
+    isWarningPlaying = false;
 }
 
 // ==========================================
@@ -210,11 +238,16 @@ async function init() {
 
     // Unlock Audio Contexts
     initAudioContext();
-    warningSound.play().then(() => warningSound.pause()).catch(e => { });
+    stopHDWarningBeep();
+    stopHDAudioAlarm();
     ringingSound.play().then(() => ringingSound.pause()).catch(e => { });
     if (synth) {
         synth.cancel();
-        synth.speak(new SpeechSynthesisUtterance(' '));
+        try {
+            const silent = new SpeechSynthesisUtterance(' ');
+            silent.volume = 0;
+            synth.speak(silent);
+        } catch (e) { }
     }
 
     if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading Fleet Models...</div>';
@@ -292,18 +325,27 @@ async function init() {
 // ==========================================
 async function loop() {
     if (!isRunning) return;
-    webcam.update();
 
-    // FPS Calc
-    fpsMetrics.frames++;
-    const now = Date.now();
-    if (now - fpsMetrics.lastTime >= 1000) {
-        footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: ${webcam.canvas.width}x${webcam.canvas.height}`;
-        fpsMetrics.frames = 0;
-        fpsMetrics.lastTime = now;
+    try {
+        webcam.update();
+
+        // FPS Calc
+        fpsMetrics.frames++;
+        const now = Date.now();
+        if (now - fpsMetrics.lastTime >= 1000) {
+            if (footerDataStream) {
+                footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: ${webcam.canvas.width}x${webcam.canvas.height}`;
+            }
+            fpsMetrics.frames = 0;
+            fpsMetrics.lastTime = now;
+        }
+
+        await predict();
+    } catch (e) {
+        console.error("Loop Crack Detected:", e);
+        logEvent(`SYS_EXCEPTION: ${e.message}. Reboot recommended.`, 't-crit');
     }
 
-    await predict();
     window.requestAnimationFrame(loop);
 }
 
@@ -358,13 +400,9 @@ function handleDrowsinessLogic(isAsleep) {
         if (sec < SECONDS_TO_TRIGGER_ALARM) {
             const timeRemaining = Math.max(0, SECONDS_TO_TRIGGER_ALARM - sec).toFixed(1);
             setStatus('sleepy', 'DROWSY WARNING', `Driver unresponsive. Cabin alarm in ${timeRemaining}s`);
-
-            if (warningSound.paused) {
-                warningSound.play().catch(e => console.log(e));
-            }
+            startHDWarningBeep();
         } else {
-            warningSound.pause();
-            warningSound.currentTime = 0;
+            stopHDWarningBeep();
             triggerAlarm();
         }
     } else {
@@ -380,8 +418,7 @@ function handleDrowsinessLogic(isAsleep) {
         currentSleepSessionStart = null;
         hasLoggedDrowsyWarningThisSession = false;
 
-        warningSound.pause();
-        warningSound.currentTime = 0;
+        stopHDWarningBeep();
 
         setStatus('awake', 'DRIVER ALERT', 'Driver parameters stable.');
     }
@@ -391,13 +428,15 @@ function handleDrowsinessLogic(isAsleep) {
 // UX FEEDBACK
 // ==========================================
 function setStatus(stateCode, title, detail) {
-    cameraContainer.className = `camera-wrapper ${stateCode}`;
-    headerStatusDot.className = `status-dot ${stateCode}`;
-    mainStatusCard.className = `assessment-container ${stateCode}`;
+    if (cameraContainer) cameraContainer.className = `camera-wrapper ${stateCode}`;
+    if (headerStatusDot) headerStatusDot.className = `status-dot ${stateCode}`;
+    if (mainStatusCard) mainStatusCard.className = `assessment-container ${stateCode}`;
 
-    bigStatusLabel.innerText = title;
-    bigStatusLabel.className = `assessment-value ${stateCode}`;
-    bigStatusSub.innerText = detail;
+    if (bigStatusLabel) {
+        bigStatusLabel.innerText = title;
+        bigStatusLabel.className = `assessment-value ${stateCode}`;
+    }
+    if (bigStatusSub) bigStatusSub.innerText = detail;
 }
 
 // ==========================================
@@ -408,9 +447,9 @@ function triggerAlarm() {
     markIncident();
 
     totalAlerts++;
-    statAlerts.innerText = String(totalAlerts).padStart(2, '0');
+    if (statAlerts) statAlerts.innerText = String(totalAlerts).padStart(2, '0');
 
-    alarmOverlay.classList.remove('hidden');
+    if (alarmOverlay) alarmOverlay.classList.remove('hidden');
     startHDAudioAlarm();
 
     let countdown = EMERGENCY_CALL_DELAY;
@@ -456,31 +495,42 @@ function triggerEmergency() {
 }
 
 function startSimulatedCall() {
-    ringingSound.play().catch(e => console.log(e));
+    logEvent('DIALING: Connecting to emergency dispatch relay...', 't-info');
+    ringingSound.play().catch(e => {
+        console.warn("Ringing sound blocked:", e);
+        logEvent('Audio alert limited. Visual protocol continuing.', 't-warn');
+    });
 
-    emergencyStatusText.innerText = "CONTACTING DISPATCH...";
-    transferProgress.style.width = "10%";
+    if (emergencyStatusText) emergencyStatusText.innerText = "CONTACTING DISPATCH...";
+    if (transferProgress) transferProgress.style.width = "10%";
 
     emergencyTimer = setTimeout(() => {
-        ringingSound.pause();
-        ringingSound.currentTime = 0;
+        try {
+            ringingSound.pause();
+            ringingSound.currentTime = 0;
 
-        emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING DATA...";
-        transferProgress.style.width = "100%";
-        logEvent('Live cell connection established. Transmitting GPS and dashcam feed.', 't-warn');
+            if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING DATA...";
+            if (transferProgress) transferProgress.style.width = "100%";
+            logEvent('Live cell connection established. Transmitting GPS and dashcam feed.', 't-warn');
 
-        let seconds = 0;
-        if (simulatedCallInterval) clearInterval(simulatedCallInterval);
-        simulatedCallInterval = setInterval(() => {
-            seconds++;
-            const m = String(Math.floor(seconds / 60)).padStart(2, '0');
-            const s = String(seconds % 60).padStart(2, '0');
-            callTimer.innerText = `${m}:${s}`;
-        }, 1000);
+            let seconds = 0;
+            if (simulatedCallInterval) clearInterval(simulatedCallInterval);
+            simulatedCallInterval = setInterval(() => {
+                seconds++;
+                if (callTimer) {
+                    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+                    const s = String(seconds % 60).padStart(2, '0');
+                    callTimer.innerText = `${m}:${s}`;
+                }
+            }, 1000);
 
-        playDispatcherVoice();
-
-    }, 3000); // Shorter connection delay for better feedback
+            playDispatcherVoice();
+        } catch (e) {
+            console.error("Call Transition Error:", e);
+            logEvent("ALERT: Dispatch voice system error. Protocol automated.", "t-crit");
+            playDispatcherVoice(); // Try again or just continue
+        }
+    }, 3000);
 }
 
 function playDispatcherVoice() {
