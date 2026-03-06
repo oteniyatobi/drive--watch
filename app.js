@@ -21,9 +21,9 @@ let fpsMetrics = { frames: 0, lastTime: Date.now() };
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-const alarmSound = new Audio("https://actions.google.com/sounds/v1/transportation/car_horn.ogg");
+const alarmSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/2/23/Emergency_vehicle_siren.ogg");
 alarmSound.loop = true;
-const ringingSound = new Audio("https://actions.google.com/sounds/v1/communications/ringback_tone.ogg");
+const ringingSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/c/c4/Telephone_ringing.ogg");
 ringingSound.loop = true;
 
 const synth = window.speechSynthesis;
@@ -61,7 +61,7 @@ function getSmoothedPredictions(rawPrediction) {
 // SYSTEM THRESHOLDS 
 // ==========================================
 const ASLEEP_THRESHOLD = 0.70;
-const SECONDS_TO_TRIGGER_ALARM = 2;
+const SECONDS_TO_TRIGGER_ALARM = 4;
 const EMERGENCY_CALL_DELAY = 10;
 
 // ==========================================
@@ -149,20 +149,20 @@ async function init() {
     ringingSound.play().then(() => ringingSound.pause()).catch(e => { });
     if (synth) synth.speak(new SpeechSynthesisUtterance(''));
 
-    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Fetching Neural Tensors...</div>';
+    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading Fleet Models...</div>';
 
     if (synth.getVoices().length === 0) {
         synth.addEventListener('voiceschanged', () => { });
     }
 
     try {
-        logEvent('Initializing Cabin Camera and AI Fatigue Analysis...', 't-info');
+        logEvent('Initializing Dashcam and Driver Status Monitor...', 't-info');
         model = await tmImage.load(URL + "model.json", URL + "metadata.json");
         maxPredictions = model.getTotalClasses();
 
         webcam = new tmImage.Webcam(400, 300, true);
 
-        if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Handshaking Optical Feed...</div>';
+        if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Connecting to Camera...</div>';
         await webcam.setup();
 
         if (startupMessage) startupMessage.style.display = 'none';
@@ -203,7 +203,7 @@ async function init() {
         cameraBadge.className = 'panel-badge ONLINE';
         liveIndicator.classList.add('active');
 
-        setStatus('awake', 'DRIVER ALERT', 'Cabin camera feed nominal. AI actively monitoring.');
+        setStatus('awake', 'DRIVER ALERT', 'Dashcam feed nominal. System actively monitoring.');
         logEvent('Monitoring active. Driver safety protocols engaged.', 't-succ');
 
     } catch (error) {
@@ -286,7 +286,7 @@ function handleDrowsinessLogic(isAsleep) {
 
         if (sec < SECONDS_TO_TRIGGER_ALARM) {
             const timeRemaining = Math.max(0, SECONDS_TO_TRIGGER_ALARM - sec).toFixed(1);
-            setStatus('sleepy', 'DROWSY WARNING', `Driver unresponsive. Master alarm in ${timeRemaining}s`);
+            setStatus('sleepy', 'DROWSY WARNING', `Driver unresponsive. Cabin alarm in ${timeRemaining}s`);
         } else {
             triggerAlarm();
         }
@@ -323,7 +323,7 @@ function setStatus(stateCode, title, detail) {
 // INCIDENT PROTOCOLS
 // ==========================================
 function triggerAlarm() {
-    logEvent('CRITICAL: Driver unresponsive. Master alarm engaged.', 't-crit');
+    logEvent('CRITICAL: Driver unresponsive. Cabin alarm engaged.', 't-crit');
 
     totalAlerts++;
     statAlerts.innerText = String(totalAlerts).padStart(2, '0');
@@ -376,18 +376,18 @@ function triggerEmergency() {
 }
 
 function startSimulatedCall() {
-    ringingSound.play().catch('');
+    ringingSound.play().catch(e => console.log(e));
 
-    emergencyStatusText.innerText = "REQUESTING UPLINK...";
+    emergencyStatusText.innerText = "CONTACTING DISPATCH...";
     transferProgress.style.width = "10%";
 
     emergencyTimer = setTimeout(() => {
         ringingSound.pause();
         ringingSound.currentTime = 0;
 
-        emergencyStatusText.innerText = "UPLINK SECURED. TRANSMITTING DATA...";
+        emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING DATA...";
         transferProgress.style.width = "100%";
-        logEvent('Cellular Uplink established. Transmitting GPS and live feed.', 't-warn');
+        logEvent('Live cell connection established. Transmitting GPS and dashcam feed.', 't-warn');
 
         let seconds = 0;
         simulatedCallInterval = setInterval(() => {
