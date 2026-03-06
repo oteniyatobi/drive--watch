@@ -52,6 +52,14 @@ let heartbeatInterval = null; // Manage speech keep-alive
 let currentPulseInterval = null;
 let currentWarningInterval = null;
 
+// Pre-load voices immediately for hardware readiness
+if (synth) {
+    synth.getVoices();
+    if (synth.onvoiceschanged !== undefined) {
+        synth.onvoiceschanged = () => synth.getVoices();
+    }
+}
+
 function initAudioContext() {
     if (audioCtx && audioCtx.state !== 'closed') return;
     try {
@@ -559,23 +567,29 @@ function playDispatcherVoice() {
             dispatchUtterance.voice = selectedVoice;
         }
 
+
+        // 3. Force-Resume Sandwich (Proven to unstick Windows/Chrome speech)
+        synth.cancel();
+        synth.resume();
+
+        // Final utterance preparation
         dispatchUtterance.onstart = () => {
-            logEvent(`VOICE: Relay active via ${selectedVoice ? selectedVoice.name : 'System Voice'}.`, 't-succ');
+            logEvent(`VOICE: Active (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
         };
 
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Error:", e);
-            logEvent(`VOICE_RECOVERY: Signal interrupted (${e.error}). Retrying...`, "t-crit");
-            // Auto-recovery for Chrome's "interrupted" bug
-            setTimeout(() => synth.speak(dispatchUtterance), 1000);
+            if (e.error !== 'interrupted') {
+                logEvent(`VOICE_RECOVERY: Syncing...`, "t-crit");
+                setTimeout(() => synth.speak(dispatchUtterance), 1000);
+            }
         };
 
-        // 3. Triple-safe execution
-        synth.cancel();
-        synth.resume();
+        // Execution
         synth.speak(dispatchUtterance);
+        synth.resume(); // Double-resume to bypass engine hibernating
 
-        // Keep-alive heartbeat (fixes long utterance cut-off in Chrome)
+        // Keep-alive heartbeat (fixes long utterance cut-off)
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         heartbeatInterval = setInterval(() => {
             if (synth.speaking) {
