@@ -23,6 +23,8 @@ let fpsMetrics = { frames: 0, lastTime: Date.now() };
 // ==========================================
 const alarmSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/2/23/Emergency_vehicle_siren.ogg");
 alarmSound.loop = true;
+const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+warningSound.loop = true;
 const ringingSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/c/c4/Telephone_ringing.ogg");
 ringingSound.loop = true;
 
@@ -146,6 +148,7 @@ async function init() {
 
     // Unlock Audio Contexts so sounds/simulation play automatically later
     alarmSound.play().then(() => alarmSound.pause()).catch(e => { });
+    warningSound.play().then(() => warningSound.pause()).catch(e => { });
     ringingSound.play().then(() => ringingSound.pause()).catch(e => { });
     if (synth) synth.speak(new SpeechSynthesisUtterance(''));
 
@@ -287,7 +290,13 @@ function handleDrowsinessLogic(isAsleep) {
         if (sec < SECONDS_TO_TRIGGER_ALARM) {
             const timeRemaining = Math.max(0, SECONDS_TO_TRIGGER_ALARM - sec).toFixed(1);
             setStatus('sleepy', 'DROWSY WARNING', `Driver unresponsive. Cabin alarm in ${timeRemaining}s`);
+
+            if (warningSound.paused) {
+                warningSound.play().catch(e => console.log(e));
+            }
         } else {
+            warningSound.pause();
+            warningSound.currentTime = 0;
             triggerAlarm();
         }
     } else {
@@ -302,6 +311,10 @@ function handleDrowsinessLogic(isAsleep) {
 
         currentSleepSessionStart = null;
         hasLoggedDrowsyWarningThisSession = false;
+
+        warningSound.pause();
+        warningSound.currentTime = 0;
+
         setStatus('awake', 'DRIVER ALERT', 'Driver parameters stable.');
     }
 }
