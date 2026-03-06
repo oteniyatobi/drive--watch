@@ -261,11 +261,11 @@ async function init() {
     if (synth) {
         synth.cancel();
         try {
-            // Prime the engine with a silent but valid utterance to unlock audio
-            const prime = new SpeechSynthesisUtterance(' ');
-            prime.volume = 0;
+            // Prime the engine with a short word to ensure unlock
+            const prime = new SpeechSynthesisUtterance('Ready');
+            prime.volume = 0.01; // Tiny but not zero to satisfy some browser checks
             synth.speak(prime);
-            logEvent('Speech synthesis subsystem initialized.', 't-info');
+            logEvent('Voice engine unlocked and ready.', 't-info');
         } catch (e) { }
     }
 
@@ -524,7 +524,7 @@ function playDispatcherVoice() {
     try {
         if (!synth) return;
 
-        // Final reset logic
+        // 1. Force clear and resume to wake the engine
         synth.cancel();
         synth.resume();
 
@@ -534,27 +534,48 @@ function playDispatcherVoice() {
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
+        // 2. Wait for voices if not loaded (Chrome quirk)
+        let voices = synth.getVoices();
+        if (voices.length === 0) {
+            logEvent('Waiting for voice hardware to warm up...', 't-info');
+            setTimeout(playDispatcherVoice, 100);
+            return;
+        }
+
         const selectedVoice = getBestVoice();
-        if (selectedVoice) dispatchUtterance.voice = selectedVoice;
+        if (selectedVoice) {
+            dispatchUtterance.voice = selectedVoice;
+        }
 
         dispatchUtterance.onstart = () => {
-            logEvent(`VOICE_RELAY: Transmitting dispatch voice (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
+            logEvent(`VOICE: Relay active via ${selectedVoice ? selectedVoice.name : 'System Voice'}.`, 't-succ');
         };
 
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Error:", e);
-            logEvent("VOICE_ERROR: Execution failed. Retrying...", "t-crit");
-            // Simple recovery
-            setTimeout(() => synth.speak(dispatchUtterance), 500);
+            logEvent(`VOICE_RECOVERY: Signal interrupted (${e.error}). Retrying...`, "t-crit");
+            // Auto-recovery for Chrome's "interrupted" bug
+            setTimeout(() => synth.speak(dispatchUtterance), 1000);
         };
 
-        // Execution chain
+        // 3. Triple-safe execution
         synth.cancel();
         synth.resume();
         synth.speak(dispatchUtterance);
 
+        // Keep-alive heartbeat (fixes long utterance cut-off in Chrome)
+        const heartbeat = setInterval(() => {
+            if (synth.speaking) {
+                synth.pause();
+                synth.resume();
+            } else {
+                clearInterval(heartbeat);
+            }
+        }, 8000);
+
     } catch (e) {
         console.error("Voice failed:", e);
+        logEvent("SYS_VOICE_ERROR: Dispatch automation failed.", "t-crit");
     }
 }
 
