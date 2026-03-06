@@ -496,6 +496,13 @@ function dismissAlarm() {
 
     isAlarmActive = false;
     isEmergencyActive = false;
+    currentSleepSessionStart = null;
+    hasLoggedDrowsyWarningThisSession = false;
+
+    if (drowsyStartTime) {
+        totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
+        drowsyStartTime = null;
+    }
 }
 
 function triggerEmergency() {
