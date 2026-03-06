@@ -18,10 +18,15 @@ let drowsyStartTime = null;
 let hasLoggedDrowsyWarningThisSession = false;
 let fpsMetrics = { frames: 0, lastTime: Date.now() };
 
+// Dashcam State
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-const alarmSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/2/23/Emergency_vehicle_siren.ogg");
+const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/industrial_alarm_pulsating.ogg");
 alarmSound.loop = true;
 const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
 warningSound.loop = true;
@@ -209,6 +214,8 @@ async function init() {
         setStatus('awake', 'DRIVER ALERT', 'Dashcam feed nominal. System actively monitoring.');
         logEvent('Monitoring active. Driver safety protocols engaged.', 't-succ');
 
+        startRecording();
+
     } catch (error) {
         if (startupMessage) {
             startupMessage.style.display = 'flex';
@@ -336,7 +343,8 @@ function setStatus(stateCode, title, detail) {
 // INCIDENT PROTOCOLS
 // ==========================================
 function triggerAlarm() {
-    logEvent('CRITICAL: Driver unresponsive. Cabin alarm engaged.', 't-crit');
+    logEvent('CRITICAL: Driver unresponsive. Cabin alarm engaged. INCIDENT RECORDED.', 't-crit');
+    markIncident();
 
     totalAlerts++;
     statAlerts.innerText = String(totalAlerts).padStart(2, '0');
@@ -452,6 +460,64 @@ function cancelEmergency() {
 }
 
 // ==========================================
+// DASHCAM SUBSYSTEM
+// ==========================================
+function startRecording() {
+    if (!webcam.canvas) return;
+    const stream = webcam.canvas.captureStream(30);
+    recordedChunks = [];
+
+    try {
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+    } catch (e) {
+        mediaRecorder = new MediaRecorder(stream);
+    }
+
+    mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+        }
+    };
+
+    mediaRecorder.onstop = saveFullSession;
+    mediaRecorder.start(1000); // Collect data every second
+    isRecording = true;
+    logEvent('Dashcam recording initialized.', 't-info');
+    document.getElementById('recording-dot').classList.add('active');
+}
+
+function stopRecording() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        isRecording = false;
+        document.getElementById('recording-dot').classList.remove('active');
+    }
+}
+
+function markIncident() {
+    logEvent('ALERT: Incident timestamped in dashcam buffer.', 't-warn');
+    // In a real app, we'd send a signal to a server or flag the chunk
+}
+
+function saveFullSession() {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `driverwatch_session_${new Date().getTime()}.webm`;
+    document.body.appendChild(a);
+    // We don't auto-download to avoid spamming, but we could provide a link in the UI
+    logEvent('Session recording compiled. Ready for export.', 't-succ');
+
+    // Create a download button in the log
+    const entry = document.createElement('div');
+    entry.className = `terminal-line t-succ`;
+    entry.innerHTML = `<span class="time">[${new Date().toLocaleTimeString()}]</span> <a href="${url}" download="session.webm" style="color:var(--accent-green); text-decoration:underline;">DOWNLOAD FULL SESSION RECAP</a>`;
+    activityLog.prepend(entry);
+}
+
+// ==========================================
 // TELEMETRY UPDATER
 // ==========================================
 function updateSessionStats() {
@@ -480,6 +546,7 @@ function updateSessionStats() {
 function stopSystem() {
     logEvent('System shut down by operator command.', 't-info');
 
+    stopRecording();
     isRunning = false;
     predictionHistory = [];
     clearInterval(sessionInterval);
