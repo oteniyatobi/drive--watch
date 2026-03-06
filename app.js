@@ -260,9 +260,11 @@ async function init() {
     if (synth) {
         synth.cancel();
         try {
-            const silent = new SpeechSynthesisUtterance(' ');
-            silent.volume = 0;
-            synth.speak(silent);
+            // Prime the engine with a silent but valid utterance
+            const prime = new SpeechSynthesisUtterance(' ');
+            prime.volume = 0;
+            synth.speak(prime);
+            logEvent('Speech engine initialized and primed.', 't-info');
         } catch (e) { }
     }
 
@@ -567,30 +569,49 @@ function startSimulatedCall() {
 
 function playDispatcherVoice() {
     try {
-        if (synth.speaking) synth.cancel();
-        synth.resume(); // CRITICAL: Fix for Chrome auto-pause bug
+        if (!synth) {
+            logEvent("CRITICAL: Voice engine missing from hardware.", "t-crit");
+            return;
+        }
 
-        const msg = "Emergency alert from DriverWatch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
+        synth.cancel();
+        synth.resume(); // Fix potential pause state
+
+        const msg = "Emergency alert from Driver Watch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
         dispatchUtterance = new SpeechSynthesisUtterance(msg);
-        dispatchUtterance.rate = 1.0;
+
+        // Priority settings
+        dispatchUtterance.rate = 0.9;
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
         const voices = synth.getVoices();
+        let selectedVoice = null;
         if (voices.length > 0) {
-            const preferredVoice = voices.find(v => v.lang.includes('en-US') && !v.localService) ||
-                voices.find(v => v.lang.includes('en-US')) ||
-                voices[0];
-            dispatchUtterance.voice = preferredVoice;
+            selectedVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
+            dispatchUtterance.voice = selectedVoice;
         }
+
+        dispatchUtterance.onstart = () => {
+            logEvent(`VOICE_RELAY: Transmitting dispatch message (${selectedVoice ? selectedVoice.name : 'Default Voice'}).`, 't-succ');
+        };
 
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Error:", e);
-            logEvent("SPEECH_FAILURE: Voice engine blocked. Manual relay suggested.", "t-crit");
+            logEvent(`VOICE_ERROR: Transmission blocked by browser (${e.error}).`, "t-crit");
         };
 
+        // Final speak command
         synth.speak(dispatchUtterance);
-        logEvent('DISPATCH: Voice transmission started.', 't-succ');
+
+        // Safety timeout in case onstart doesn't fire
+        setTimeout(() => {
+            if (!synth.speaking) {
+                console.warn("Speech engine seems stuck. Attempting force-restart.");
+                synth.resume();
+            }
+        }, 500);
+
     } catch (e) {
         console.error("Voice execution failed:", e);
         logEvent("SYS_VOICE_ERROR: Emergency automation failed.", "t-crit");
