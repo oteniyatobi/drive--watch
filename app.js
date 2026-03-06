@@ -155,6 +155,7 @@ document.querySelector('.export-btn').addEventListener('click', () => {
 // INITIALIZATION SEQUENCE
 // ==========================================
 async function init() {
+    await initDB();
     startBtn.disabled = true;
 
     // Unlock Audio Contexts so sounds/simulation play automatically later
@@ -504,36 +505,146 @@ function stopRecording() {
 function markIncident() {
     logEvent('ALERT: CRITICAL INCIDENT TIMESTAMPED. GENERATING CLIP...', 't-crit');
 
-    // Generate a quick clip of the last segments recorded so far
     if (recordedChunks.length > 0) {
+        const timestamp = new Date().getTime();
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
 
-        // Add a dedicated download link for this specific incident
+        saveVideoToDB(`incident_${timestamp}`, blob, 'INCIDENT');
+
+        const url = URL.createObjectURL(blob);
         const entry = document.createElement('div');
         entry.className = `terminal-line t-crit`;
         const time = new Date().toLocaleTimeString();
-        entry.innerHTML = `<span class="time">[${time}]</span> <a href="${url}" download="incident_clip_${new Date().getTime()}.webm" style="color:var(--stat-danger); font-weight:800; text-decoration:underline;">[DOWNLOAD INSTANT INCIDENT CLIP]</a>`;
+        entry.innerHTML = `<span class="time">[${time}]</span> <a href="${url}" download="incident_clip_${timestamp}.webm" style="color:var(--stat-danger); font-weight:800; text-decoration:underline;">[DOWNLOAD INSTANT INCIDENT CLIP]</a>`;
         activityLog.prepend(entry);
     }
 }
 
 function saveFullSession() {
+    const timestamp = new Date().getTime();
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
+
+    saveVideoToDB(`session_${timestamp}`, blob, 'FULL SESSION');
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.style.display = 'none';
     a.href = url;
-    a.download = `driverwatch_session_${new Date().getTime()}.webm`;
+    a.download = `driverwatch_session_${timestamp}.webm`;
     document.body.appendChild(a);
-    // We don't auto-download to avoid spamming, but we could provide a link in the UI
-    logEvent('Session recording compiled. Ready for export.', 't-succ');
+    logEvent('Session recording compiled and saved to Vault.', 't-succ');
 
-    // Create a download button in the log
     const entry = document.createElement('div');
     entry.className = `terminal-line t-succ`;
     entry.innerHTML = `<span class="time">[${new Date().toLocaleTimeString()}]</span> <a href="${url}" download="session.webm" style="color:var(--accent-green); text-decoration:underline;">DOWNLOAD FULL SESSION RECAP</a>`;
     activityLog.prepend(entry);
+}
+
+// ==========================================
+// STORAGE & VAULT SUBSYSTEM (IndexedDB)
+// ==========================================
+function initDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = (event) => reject('Database error: ' + event.target.errorCode);
+        request.onsuccess = (event) => {
+            db = event.target.result;
+            resolve(db);
+        };
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        };
+    });
+}
+
+function saveVideoToDB(id, blob, type) {
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const videoData = {
+        id: id,
+        blob: blob,
+        type: type,
+        timestamp: new Date().toLocaleString()
+    };
+    const request = store.put(videoData);
+    request.onsuccess = () => {
+        logEvent(`Video saved to Media Vault: ${type}`, 't-info');
+        loadMediaVault();
+    };
+}
+
+async function loadMediaVault() {
+    const vaultContainer = document.getElementById('vault-list');
+    if (!vaultContainer) return;
+    vaultContainer.innerHTML = '';
+
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+
+    request.onsuccess = (event) => {
+        const videos = event.target.result;
+        if (videos.length === 0) {
+            vaultContainer.innerHTML = '<div class="empty-data">NO RECORDS FOUND</div>';
+            return;
+        }
+
+        videos.sort((a, b) => {
+            const timeA = parseInt(a.id.split('_')[1]) || 0;
+            const timeB = parseInt(b.id.split('_')[1]) || 0;
+            return timeB - timeA;
+        }).forEach(video => {
+            const item = document.createElement('div');
+            item.className = 'vault-item';
+            const isIncident = video.type === 'INCIDENT';
+            item.innerHTML = `
+                <div class="vault-info">
+                    <span class="vault-type ${isIncident ? 't-crit' : 't-succ'}">${video.type}</span>
+                    <span class="vault-time">${video.timestamp}</span>
+                </div>
+                <div class="vault-actions">
+                    <button class="btn-play" onclick="playVideo('${video.id}')">PLAY</button>
+                    <button class="btn-del" onclick="deleteVideo('${video.id}')">DEL</button>
+                </div>
+            `;
+            vaultContainer.appendChild(item);
+        });
+    };
+}
+
+function playVideo(id) {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(id);
+
+    request.onsuccess = (event) => {
+        const video = event.target.result;
+        const url = URL.createObjectURL(video.blob);
+        const player = document.getElementById('vault-player');
+        const modal = document.getElementById('vault-modal');
+        player.src = url;
+        modal.classList.remove('hidden');
+        player.play();
+    };
+}
+
+function closeVaultPlayer() {
+    const player = document.getElementById('vault-player');
+    const modal = document.getElementById('vault-modal');
+    player.pause();
+    modal.classList.add('hidden');
+}
+
+function deleteVideo(id) {
+    if (confirm('Delete this recording forever?')) {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete(id).onsuccess = () => {
+            logEvent('Media purged from vault.', 't-warn');
+            loadMediaVault();
+        };
+    }
 }
 
 // ==========================================

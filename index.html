@@ -206,6 +206,18 @@
         </div>
     </div>
 
+    <!-- MEDIA VAULT PLAYER MODAL -->
+    <div id="vault-modal" class="overlay-modal hidden">
+        <div class="modal-bg"></div>
+        <div class="modal-content vault-player-panel">
+            <div class="warning-header">
+                <span>VAULT PLAYBACK</span>
+                <button class="close-vault" onclick="closeVaultPlayer()">CLOSE</button>
+            </div>
+            <video id="vault-player" controls style="width:100%; aspect-ratio:16/9; background:#000;"></video>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
     <script src="app.js"></script>
