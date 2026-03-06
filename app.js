@@ -32,7 +32,8 @@ let db = null;
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-const alarmSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/e/ec/Siren_European.ogg");
+// Using a more aggressive, high-frequency pulsating industrial alarm
+const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/industrial_alarm_pulsating.ogg");
 alarmSound.loop = true;
 const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
 warningSound.loop = true;
@@ -155,7 +156,12 @@ document.querySelector('.export-btn').addEventListener('click', () => {
 // INITIALIZATION SEQUENCE
 // ==========================================
 async function init() {
-    await initDB();
+    try {
+        await initDB();
+    } catch (e) {
+        console.warn("Media Vault storage unavailable:", e);
+        logEvent('Storage subsystem offline. Manual export required.', 't-warn');
+    }
     startBtn.disabled = true;
 
     // Unlock Audio Contexts so sounds/simulation play automatically later
@@ -419,6 +425,7 @@ function startSimulatedCall() {
         logEvent('Live cell connection established. Transmitting GPS and dashcam feed.', 't-warn');
 
         let seconds = 0;
+        if (simulatedCallInterval) clearInterval(simulatedCallInterval);
         simulatedCallInterval = setInterval(() => {
             seconds++;
             const m = String(Math.floor(seconds / 60)).padStart(2, '0');
@@ -428,10 +435,11 @@ function startSimulatedCall() {
 
         playDispatcherVoice();
 
-    }, 6000);
+    }, 3000); // Shorter connection delay for better feedback
 }
 
 function playDispatcherVoice() {
+    if (synth.speaking) synth.cancel();
     const msg = "Emergency alert from DriverWatch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
     dispatchUtterance = new SpeechSynthesisUtterance(msg);
     dispatchUtterance.rate = 0.95;
@@ -559,6 +567,10 @@ function initDB() {
 }
 
 function saveVideoToDB(id, blob, type) {
+    if (!db) {
+        logEvent('Storage unavailable. Unable to save to Vault.', 't-warn');
+        return;
+    }
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const videoData = {
@@ -576,7 +588,7 @@ function saveVideoToDB(id, blob, type) {
 
 async function loadMediaVault() {
     const vaultContainer = document.getElementById('vault-list');
-    if (!vaultContainer) return;
+    if (!vaultContainer || !db) return;
     vaultContainer.innerHTML = '';
 
     const transaction = db.transaction([STORE_NAME], 'readonly');
