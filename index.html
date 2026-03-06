@@ -132,7 +132,7 @@
             <div class="data-module log-module">
                 <div class="module-header">
                     <h3>SYSTEM EVENT LOG</h3>
-                    <button class="export-btn">CLEAR</button>
+                    <button class="export-btn" id="clear-log-btn">CLEAR</button>
                 </div>
                 <div class="terminal-container" id="activity-log">
                     <div class="terminal-line">[SYS] Waiting for monitoring to begin...</div>
@@ -213,6 +213,7 @@
                 </div>
             </div>
 
+            <button id="play-dispatch-voice" type="button" class="btn-override" style="margin-bottom: 8px;">PLAY DISPATCH MESSAGE (TTS)</button>
             <button id="cancel-emergency" class="btn-abort">ABORT PROTOCOL (FALSE POSITIVE)</button>
         </div>
     </div>

@@ -2,7 +2,7 @@
 // DRIVERWATCH ENTERPRISE - LOGIC KERNEL
 // ==========================================
 
-const URL = "./model/";
+const MODEL_URL = "./model/";
 
 let model, webcam, maxPredictions;
 let isRunning = false;
@@ -183,6 +183,7 @@ const startBtn = document.getElementById('start-btn');
 const stopBtn = document.getElementById('stop-btn');
 const dismissAlarmBtn = document.getElementById('dismiss-alarm');
 const cancelEmergencyBtn = document.getElementById('cancel-emergency');
+const playDispatchVoiceBtn = document.getElementById('play-dispatch-voice');
 
 // Navigation
 const navSystemTag = document.getElementById('nav-system-tag');
@@ -226,6 +227,7 @@ startBtn.addEventListener('click', init);
 stopBtn.addEventListener('click', stopSystem);
 dismissAlarmBtn.addEventListener('click', dismissAlarm);
 cancelEmergencyBtn.addEventListener('click', cancelEmergency);
+if (playDispatchVoiceBtn) playDispatchVoiceBtn.addEventListener('click', () => { if (isEmergencyActive) playDispatcherVoice(); });
 
 // ==========================================
 // EVENT LOG KERNEL
@@ -245,7 +247,8 @@ function logEvent(message, type = 't-info') {
     }
 }
 
-document.querySelector('.export-btn').addEventListener('click', () => {
+const clearLogBtn = document.getElementById('clear-log-btn');
+if (clearLogBtn) clearLogBtn.addEventListener('click', () => {
     activityLog.innerHTML = '<div class="terminal-line">[SYS] Buffer cleared by operator.</div>';
 });
 
@@ -270,9 +273,10 @@ async function init() {
     if (synth) {
         synth.cancel();
         try {
-            // Prime the engine with a short word to ensure unlock
-            const prime = new SpeechSynthesisUtterance('Ready');
-            prime.volume = 0.01; // Tiny but not zero to satisfy some browser checks
+            // Prime the engine with a short word so TTS is allowed later (browser gesture requirement)
+            const prime = new SpeechSynthesisUtterance('Voice ready.');
+            prime.volume = 0.3; // High enough that the engine actually runs
+            prime.rate = 1.2;
             synth.speak(prime);
             logEvent('Voice engine unlocked and ready.', 't-info');
         } catch (e) { }
@@ -282,7 +286,7 @@ async function init() {
 
     try {
         logEvent('Initializing Dashcam and Driver Status Monitor...', 't-info');
-        model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
         maxPredictions = model.getTotalClasses();
 
         webcam = new tmImage.Webcam(400, 300, true);
@@ -513,11 +517,15 @@ function startSimulatedCall() {
             if (transferProgress) transferProgress.style.width = "100%";
             logEvent('Live connection established. Transmitting GPS and Feed.', 't-warn');
 
-            // 4. Silent Audio Anchor: Re-assert audio context activity right before speech
+            // Re-assert audio context so TTS is allowed (browsers tie it to same policy)
+            initAudioContext();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
             if (audioCtx) {
                 const anchor = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
-                gain.gain.value = 0.0001; // Effectively silent
+                gain.gain.value = 0.0001;
                 anchor.connect(gain);
                 gain.connect(audioCtx.destination);
                 anchor.start();
@@ -540,12 +548,14 @@ function getBestVoice() {
         voices[0];
 }
 
+let dispatcherVoiceRetryCount = 0;
+const DISPATCHER_VOICE_MAX_RETRIES = 50;
+
 function playDispatcherVoice() {
     try {
         if (!synth) return;
 
-        // 1. Reset and Wake Engine
-        synth.cancel();
+        // Don't cancel here – it can reset the engine and block subsequent speak()
         synth.resume();
 
         const msg = "Emergency alert from Driver Watch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
@@ -554,32 +564,55 @@ function playDispatcherVoice() {
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
-        // 2. Hardware Wait (Chrome Quirk)
         let voices = synth.getVoices();
         if (voices.length === 0) {
-            setTimeout(playDispatcherVoice, 100);
+            dispatcherVoiceRetryCount++;
+            if (dispatcherVoiceRetryCount <= DISPATCHER_VOICE_MAX_RETRIES) {
+                setTimeout(playDispatcherVoice, 150);
+            } else {
+                // Speak with default voice
+                dispatcherVoiceRetryCount = 0;
+                logEvent('VOICE: Using default (no voice list).', 't-warn');
+                doSpeakDispatch(null);
+            }
             return;
         }
+        dispatcherVoiceRetryCount = 0;
 
         const selectedVoice = getBestVoice();
-        if (selectedVoice) dispatchUtterance.voice = selectedVoice;
+        try {
+            if (selectedVoice) dispatchUtterance.voice = selectedVoice;
+        } catch (e) {
+            // Some browsers fail when setting voice; continue with default
+        }
+        doSpeakDispatch(selectedVoice);
 
-        // 3. Execution Sandwich (Force-Resume after speak)
+    } catch (e) {
+        console.error("Voice Logic Crash:", e);
+        logEvent('VOICE: Playback failed – ' + (e.message || 'unknown'), 't-crit');
+    }
+}
+
+function doSpeakDispatch(selectedVoice) {
+    if (!synth || !dispatchUtterance) return;
+    try {
         dispatchUtterance.onstart = () => {
             logEvent(`VOICE: Transmission active (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
         };
-
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Logic Error:", e);
-            if (e.error !== 'interrupted') {
-                setTimeout(() => synth.speak(dispatchUtterance), 1000);
+            if (e.error !== 'interrupted' && e.error !== 'canceled') {
+                setTimeout(() => { if (dispatchUtterance) synth.speak(dispatchUtterance); }, 1000);
             }
+        };
+        dispatchUtterance.onend = () => {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
         };
 
         synth.speak(dispatchUtterance);
-        synth.resume(); // CRITICAL: unstick engine
+        synth.resume();
 
-        // Heartbeat Keep-Alive
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         heartbeatInterval = setInterval(() => {
             if (synth.speaking) {
@@ -590,9 +623,8 @@ function playDispatcherVoice() {
                 heartbeatInterval = null;
             }
         }, 8000);
-
     } catch (e) {
-        console.error("Voice Logic Crash:", e);
+        console.error("doSpeakDispatch error:", e);
     }
 }
 
@@ -604,6 +636,7 @@ function cancelEmergency() {
     ringingSound.pause();
     ringingSound.currentTime = 0;
 
+    dispatcherVoiceRetryCount = 0;
     if (synth) synth.cancel();
     if (emergencyTimer) clearTimeout(emergencyTimer);
     if (simulatedCallInterval) clearInterval(simulatedCallInterval);
@@ -709,22 +742,87 @@ async function loadMediaVault() {
 }
 
 function playVideo(id) {
+    if (!db) {
+        logEvent('Database not initialized. Cannot play video.', 't-warn');
+        return;
+    }
+    
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
-    store.get(id).onsuccess = (event) => {
+    const request = store.get(id);
+    
+    request.onsuccess = (event) => {
         const video = event.target.result;
-        if (!video) return;
+        if (!video) {
+            logEvent('Video not found in vault.', 't-warn');
+            return;
+        }
+        
         const player = document.getElementById('vault-player');
         const modal = document.getElementById('vault-modal');
-        player.src = URL.createObjectURL(video.blob);
+        
+        if (!player || !modal) {
+            logEvent('Video player elements not found.', 't-crit');
+            return;
+        }
+        
+        // Clean up previous video URL to prevent memory leaks
+        if (player.src && player.src.startsWith('blob:')) {
+            window.URL.revokeObjectURL(player.src);
+        }
+        
+        // Reset player to ensure fresh load
+        player.pause();
+        player.src = '';
+        player.load();
+        
+        // Create new object URL for the video blob
+        const videoUrl = window.URL.createObjectURL(video.blob);
+        player.src = videoUrl;
         modal.classList.remove('hidden');
-        player.play();
+        
+        // Handle video loading
+        player.oncanplay = () => {
+            player.play().catch(e => {
+                console.error("Playback failed:", e);
+                logEvent("Playback Error: " + e.message, "t-crit");
+            });
+        };
+        
+        player.onerror = (e) => {
+            logEvent("Playback Error: File format mismatch or corrupted video.", "t-crit");
+            console.error("Video Error:", player.error);
+            window.URL.revokeObjectURL(videoUrl);
+        };
+        
+        // Clean up URL when video ends or modal closes
+        player.onended = () => {
+            window.URL.revokeObjectURL(videoUrl);
+        };
+    };
+    
+    request.onerror = (event) => {
+        logEvent('Failed to retrieve video from database.', 't-crit');
+        console.error('Database error:', event);
     };
 }
 
 function closeVaultPlayer() {
-    document.getElementById('vault-player').pause();
-    document.getElementById('vault-modal').classList.add('hidden');
+    const player = document.getElementById('vault-player');
+    const modal = document.getElementById('vault-modal');
+    
+    if (player) {
+        player.pause();
+        // Clean up object URL to prevent memory leaks
+        if (player.src && player.src.startsWith('blob:')) {
+            window.URL.revokeObjectURL(player.src);
+        }
+        player.src = '';
+    }
+    
+    if (modal) {
+        modal.classList.add('hidden');
+    }
 }
 
 function deleteVideo(id) {
