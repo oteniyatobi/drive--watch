@@ -65,11 +65,23 @@ function keepVoiceEngineWarm() {
     if (keepWarmInterval) clearInterval(keepWarmInterval);
     keepWarmInterval = setInterval(() => {
         if (synth && !synth.speaking && isRunning) {
-            const pulse = new SpeechSynthesisUtterance(' '); // Silent pulse
+            // 1. Silent Speech Pulse
+            const pulse = new SpeechSynthesisUtterance(' ');
             pulse.volume = 0.001;
             synth.speak(pulse);
+
+            // 2. Microscopic Audio Context Pulse (holds the gesture privilege)
+            if (audioCtx && audioCtx.state !== 'closed') {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                g.gain.value = 0.0001;
+                osc.connect(g);
+                g.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.05);
+            }
         }
-    }, 30000); // 30s heartbeat to prevent engine sleep
+    }, 10000); // 10s heartbeat (shorter than Chrome's timeout)
 }
 
 function initAudioContext() {
@@ -551,8 +563,13 @@ function getBestVoice() {
     if (!synth) return null;
     const voices = synth.getVoices();
     if (voices.length === 0) return null;
-    return voices.find(v => v.lang.includes('en-US') && (v.name.includes('Female') || v.name.includes('Google'))) ||
-        voices.find(v => v.lang.includes('en-US')) ||
+
+    // CRITICAL: Avoid "Google" voices as they are remote and fail silently
+    const localVoices = voices.filter(v => v.localService === true || !v.name.includes('Google'));
+
+    return localVoices.find(v => v.lang.includes('en-US') && v.name.includes('Female')) ||
+        localVoices.find(v => v.lang.includes('en-US')) ||
+        localVoices[0] ||
         voices[0];
 }
 
@@ -566,17 +583,12 @@ function playDispatcherVoice() {
 
         const msg = "Emergency alert from Driver Watch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
         dispatchUtterance = new SpeechSynthesisUtterance(msg);
-        dispatchUtterance.rate = 0.95;
+        dispatchUtterance.rate = 1.0; // Standard rate for local voices
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
-        // Hardware Wait (Chrome Quirk)
+        // Hardware Wait
         let voices = synth.getVoices();
-        if (voices.length === 0) {
-            setTimeout(playDispatcherVoice, 100);
-            return;
-        }
-
         const selectedVoice = getBestVoice();
         if (selectedVoice) dispatchUtterance.voice = selectedVoice;
 
@@ -587,17 +599,18 @@ function playDispatcherVoice() {
 
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Logic Error:", e);
-            if (e.error !== 'interrupted' && e.error !== 'canceled') {
-                logEvent("VOICE_RECOVERY: Force-syncing signal...", "t-crit");
-                setTimeout(() => synth.speak(dispatchUtterance), 1000);
+            // Auto-recovery if interrupted
+            if (e.error !== 'canceled') {
+                logEvent("VOICE_RECOVERY: Re-launching signal...", "t-crit");
+                setTimeout(() => synth.speak(dispatchUtterance), 500);
             }
         };
 
-        // Execution Sandwich
+        // Execution Sandwich (Force-Resume after speak)
         synth.speak(dispatchUtterance);
         synth.resume();
 
-        // Heartbeat Keep-Alive (fixes 15-second cutoff bug)
+        // Heartbeat Keep-Alive
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         heartbeatInterval = setInterval(() => {
             if (synth.speaking) {
@@ -607,7 +620,7 @@ function playDispatcherVoice() {
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = null;
             }
-        }, 8000);
+        }, 5000); // More aggressive heartbeat for local voices
 
     } catch (e) {
         console.error("Voice Logic Crash:", e);
