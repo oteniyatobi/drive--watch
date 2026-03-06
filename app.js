@@ -26,7 +26,7 @@ let isRecording = false;
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/beeping_ship_alarm.ogg");
+const alarmSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/e/ec/Siren_European.ogg");
 alarmSound.loop = true;
 const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
 warningSound.loop = true;
