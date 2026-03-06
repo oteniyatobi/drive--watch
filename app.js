@@ -26,7 +26,7 @@ let isRecording = false;
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/industrial_alarm_pulsating.ogg");
+const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/beeping_ship_alarm.ogg");
 alarmSound.loop = true;
 const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
 warningSound.loop = true;
@@ -495,8 +495,20 @@ function stopRecording() {
 }
 
 function markIncident() {
-    logEvent('ALERT: Incident timestamped in dashcam buffer.', 't-warn');
-    // In a real app, we'd send a signal to a server or flag the chunk
+    logEvent('ALERT: CRITICAL INCIDENT TIMESTAMPED. GENERATING CLIP...', 't-crit');
+
+    // Generate a quick clip of the last segments recorded so far
+    if (recordedChunks.length > 0) {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+
+        // Add a dedicated download link for this specific incident
+        const entry = document.createElement('div');
+        entry.className = `terminal-line t-crit`;
+        const time = new Date().toLocaleTimeString();
+        entry.innerHTML = `<span class="time">[${time}]</span> <a href="${url}" download="incident_clip_${new Date().getTime()}.webm" style="color:var(--stat-danger); font-weight:800; text-decoration:underline;">[DOWNLOAD INSTANT INCIDENT CLIP]</a>`;
+        activityLog.prepend(entry);
+    }
 }
 
 function saveFullSession() {
