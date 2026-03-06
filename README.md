@@ -56,6 +56,9 @@ Balancing the heavy load of local dashcam recording (MediaRecorder) while simult
 ---
 
 ## How to Run & Test
+1st step use the hosted link (drive-watch-three.vercel.app)
+
+MANUALLY
 
 1. **Clone the Repository**:  
    `git clone https://github.com/oteniyatobi/drive--watch.git`
