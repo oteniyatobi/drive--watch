@@ -164,7 +164,7 @@ function getSmoothedPredictions(rawPrediction) {
 // ==========================================
 const ASLEEP_THRESHOLD = 0.70;
 const SECONDS_TO_TRIGGER_ALARM = 4;
-const EMERGENCY_CALL_DELAY = 3;
+const EMERGENCY_CALL_DELAY = 10;
 
 // ==========================================
 // DOM MAPPING 
@@ -459,16 +459,22 @@ function setStatus(stateCode, title, detail) {
 // INCIDENT PROTOCOLS
 // ==========================================
 function triggerAlarm() {
-    if (isAlarmActive) return; // ALREADY TRIGGERED
+    if (isAlarmActive) return;
     isAlarmActive = true;
 
+    // UI FIRST: Ensure this happens even if other code fails
+    if (alarmOverlay) alarmOverlay.classList.remove('hidden');
+    setStatus('sleepy', 'CRITICAL ALARM', 'Driver unresponsive. Emergency protocols active.');
+
     logEvent('CRITICAL: Driver unresponsive. Cabin alarm engaged. INCIDENT RECORDED.', 't-crit');
-    markIncident();
+
+    try {
+        markIncident();
+    } catch (e) { console.warn("Incident logging fail:", e); }
 
     totalAlerts++;
     if (statAlerts) statAlerts.innerText = String(totalAlerts).padStart(2, '0');
 
-    if (alarmOverlay) alarmOverlay.classList.remove('hidden');
     startHDAudioAlarm();
 
     let countdown = EMERGENCY_CALL_DELAY;
@@ -509,10 +515,12 @@ function triggerEmergency() {
     if (isEmergencyActive) return;
     isEmergencyActive = true;
 
-    logEvent('ESCALATION: Fleet Dispatch / 911 Protocol Initiated.', 't-crit');
-
+    // UI FIRST
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     if (emergencyOverlay) emergencyOverlay.classList.remove('hidden');
+    setStatus('sleepy', 'DISPATCH CALLED', 'Fleet emergency protocols in progress.');
+
+    logEvent('ESCALATION: Fleet Dispatch / 911 Protocol Initiated.', 't-crit');
 
     stopHDAudioAlarm();
     startSimulatedCall();
