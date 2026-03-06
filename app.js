@@ -32,9 +32,12 @@ let db = null;
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
-// Using a more aggressive, high-frequency pulsating industrial alarm
-const alarmSound = new Audio("https://actions.google.com/sounds/v1/alarms/industrial_alarm_pulsating.ogg");
-alarmSound.loop = true;
+// Web Audio API Context for 100% reliability (Henry Danger Style)
+let audioCtx = null;
+let alarmOscillator = null;
+let alarmGain = null;
+let isAlarmPlaying = false;
+
 const warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
 warningSound.loop = true;
 const ringingSound = new Audio("https://upload.wikimedia.org/wikipedia/commons/c/c4/Telephone_ringing.ogg");
@@ -42,6 +45,47 @@ ringingSound.loop = true;
 
 const synth = window.speechSynthesis;
 let dispatchUtterance = null;
+
+function initAudioContext() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function startHDAudioAlarm() {
+    if (isAlarmPlaying) return;
+    initAudioContext();
+    isAlarmPlaying = true;
+
+    // Create oscillator for high-intensity pulsing
+    alarmOscillator = audioCtx.createOscillator();
+    alarmGain = audioCtx.createGain();
+
+    alarmOscillator.type = 'square'; // Aggressive square wave
+    alarmOscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // High pitch
+
+    // Pulsing logic
+    const pulseInterval = 0.15; // 150ms
+    for (let i = 0; i < 1000; i++) {
+        const t = audioCtx.currentTime + (i * pulseInterval);
+        alarmGain.gain.setValueAtTime(0.8, t);
+        alarmGain.gain.setValueAtTime(0, t + 0.075);
+    }
+
+    alarmOscillator.connect(alarmGain);
+    alarmGain.connect(audioCtx.destination);
+
+    alarmOscillator.start();
+}
+
+function stopHDAudioAlarm() {
+    if (alarmOscillator) {
+        try {
+            alarmOscillator.stop();
+        } catch (e) { }
+        alarmOscillator.disconnect();
+    }
+    isAlarmPlaying = false;
+}
 
 // ==========================================
 // SUBSYSTEM: PREDICTION STABILIZATION
@@ -164,11 +208,14 @@ async function init() {
     }
     startBtn.disabled = true;
 
-    // Unlock Audio Contexts so sounds/simulation play automatically later
-    alarmSound.play().then(() => alarmSound.pause()).catch(e => { });
+    // Unlock Audio Contexts
+    initAudioContext();
     warningSound.play().then(() => warningSound.pause()).catch(e => { });
     ringingSound.play().then(() => ringingSound.pause()).catch(e => { });
-    if (synth) synth.speak(new SpeechSynthesisUtterance(''));
+    if (synth) {
+        synth.cancel();
+        synth.speak(new SpeechSynthesisUtterance(' '));
+    }
 
     if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading Fleet Models...</div>';
 
@@ -364,7 +411,7 @@ function triggerAlarm() {
     statAlerts.innerText = String(totalAlerts).padStart(2, '0');
 
     alarmOverlay.classList.remove('hidden');
-    alarmSound.play().catch(e => console.log(e));
+    startHDAudioAlarm();
 
     let countdown = EMERGENCY_CALL_DELAY;
     countdownEl.innerText = String(countdown).padStart(2, '0');
@@ -383,8 +430,7 @@ function dismissAlarm() {
     logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
 
     alarmOverlay.classList.add('hidden');
-    alarmSound.pause();
-    alarmSound.currentTime = 0;
+    stopHDAudioAlarm();
 
     clearInterval(countdownInterval);
     clearTimeout(emergencyTimer);
@@ -404,8 +450,7 @@ function triggerEmergency() {
     alarmOverlay.classList.add('hidden');
     emergencyOverlay.classList.remove('hidden');
 
-    alarmSound.pause();
-    alarmSound.currentTime = 0;
+    stopHDAudioAlarm();
 
     startSimulatedCall();
 }
@@ -454,10 +499,10 @@ function playDispatcherVoice() {
 function cancelEmergency() {
     logEvent('ABORT: Dispatch sequence terminated by local operator.', 't-info');
 
+    alarmOverlay.classList.add('hidden');
     emergencyOverlay.classList.add('hidden');
 
-    alarmSound.pause();
-    alarmSound.currentTime = 0;
+    stopHDAudioAlarm();
     ringingSound.pause();
     ringingSound.currentTime = 0;
 
@@ -484,7 +529,8 @@ function startRecording() {
     recordedChunks = [];
 
     try {
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+        // Use standard webm to ensure max compatibility across all browsers
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
     } catch (e) {
         mediaRecorder = new MediaRecorder(stream);
     }
@@ -496,7 +542,7 @@ function startRecording() {
     };
 
     mediaRecorder.onstop = saveFullSession;
-    mediaRecorder.start(1000); // Collect data every second
+    mediaRecorder.start(1000);
     isRecording = true;
     logEvent('Dashcam recording initialized.', 't-info');
     document.getElementById('recording-dot').classList.add('active');
@@ -632,12 +678,28 @@ function playVideo(id) {
 
     request.onsuccess = (event) => {
         const video = event.target.result;
+        if (!video) return;
+
         const url = URL.createObjectURL(video.blob);
         const player = document.getElementById('vault-player');
         const modal = document.getElementById('vault-modal');
+
+        // Reset player to ensure fresh load
+        player.pause();
+        player.src = "";
+        player.load();
+
         player.src = url;
         modal.classList.remove('hidden');
-        player.play();
+
+        player.oncanplay = () => {
+            player.play().catch(e => console.error("Playback failed:", e));
+        };
+
+        player.onerror = (e) => {
+            logEvent("Playback Error: File format mismatch.", "t-crit");
+            console.error("Video Error:", player.error);
+        };
     };
 }
 
