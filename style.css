@@ -289,12 +289,48 @@ h3 {
     left: 0;
     width: 100%;
     padding: 0.5rem 1rem;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.8);
     display: flex;
     justify-content: space-between;
     align-items: center;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     z-index: 10;
+}
+
+.recording-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--stat-danger);
+    letter-spacing: 0.05em;
+}
+
+.rec-pulse {
+    width: 8px;
+    height: 8px;
+    background: var(--stat-danger);
+    border-radius: 50%;
+    opacity: 0;
+}
+
+.rec-pulse.active {
+    animation: pulse-red 1s infinite alternate;
+}
+
+@keyframes pulse-red {
+    from {
+        opacity: 0.3;
+        transform: scale(1);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1.2);
+        box-shadow: 0 0 8px var(--stat-danger);
+    }
 }
 
 .data-stream {
