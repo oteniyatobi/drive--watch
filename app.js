@@ -17,6 +17,8 @@ let totalDrowsySeconds = 0;
 let drowsyStartTime = null;
 let hasLoggedDrowsyWarningThisSession = false;
 let fpsMetrics = { frames: 0, lastTime: Date.now() };
+let isAlarmActive = false; // State Guard
+let isEmergencyActive = false; // State Guard
 
 // Dashcam State
 let mediaRecorder = null;
@@ -46,15 +48,22 @@ ringingSound.loop = true;
 
 const synth = window.speechSynthesis;
 let dispatchUtterance = null;
+let currentPulseInterval = null;
+let currentWarningInterval = null;
 
 function initAudioContext() {
     if (audioCtx && audioCtx.state !== 'closed') return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+        console.error("Audio Context initialization failed:", e);
+    }
 }
 
 function startHDAudioAlarm() {
     if (isAlarmPlaying) return;
     initAudioContext();
+    if (!audioCtx) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
     isAlarmPlaying = true;
 
@@ -63,20 +72,23 @@ function startHDAudioAlarm() {
     alarmOscillator.type = 'square';
     alarmOscillator.frequency.setValueAtTime(1400, audioCtx.currentTime);
 
-    // Create constant pulsing
-    const now = audioCtx.currentTime;
-    for (let i = 0; i < 200; i++) {
-        const t = now + (i * 0.15);
-        alarmGain.gain.setValueAtTime(0.8, t);
-        alarmGain.gain.setValueAtTime(0, t + 0.07);
-    }
-
+    alarmGain.gain.setValueAtTime(0, audioCtx.currentTime);
     alarmOscillator.connect(alarmGain);
     alarmGain.connect(audioCtx.destination);
     alarmOscillator.start();
+
+    // Low-overhead pulsing
+    let pulseState = false;
+    if (currentPulseInterval) clearInterval(currentPulseInterval);
+    currentPulseInterval = setInterval(() => {
+        if (!audioCtx) return;
+        pulseState = !pulseState;
+        alarmGain.gain.setTargetAtTime(pulseState ? 0.8 : 0, audioCtx.currentTime, 0.01);
+    }, 150);
 }
 
 function stopHDAudioAlarm() {
+    if (currentPulseInterval) clearInterval(currentPulseInterval);
     if (alarmOscillator) {
         try { alarmOscillator.stop(); } catch (e) { }
         alarmOscillator.disconnect();
@@ -87,6 +99,7 @@ function stopHDAudioAlarm() {
 function startHDWarningBeep() {
     if (isWarningPlaying) return;
     initAudioContext();
+    if (!audioCtx) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
     isWarningPlaying = true;
 
@@ -95,19 +108,22 @@ function startHDWarningBeep() {
     warningOscillator.type = 'sine';
     warningOscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
 
-    const now = audioCtx.currentTime;
-    for (let i = 0; i < 100; i++) {
-        const t = now + (i * 0.5);
-        warningGain.gain.setValueAtTime(0.3, t);
-        warningGain.gain.setValueAtTime(0, t + 0.1);
-    }
-
+    warningGain.gain.setValueAtTime(0, audioCtx.currentTime);
     warningOscillator.connect(warningGain);
     warningGain.connect(audioCtx.destination);
     warningOscillator.start();
+
+    let beepState = false;
+    if (currentWarningInterval) clearInterval(currentWarningInterval);
+    currentWarningInterval = setInterval(() => {
+        if (!audioCtx) return;
+        beepState = !beepState;
+        warningGain.gain.setTargetAtTime(beepState ? 0.3 : 0, audioCtx.currentTime, 0.01);
+    }, 500);
 }
 
 function stopHDWarningBeep() {
+    if (currentWarningInterval) clearInterval(currentWarningInterval);
     if (warningOscillator) {
         try { warningOscillator.stop(); } catch (e) { }
         warningOscillator.disconnect();
@@ -443,6 +459,9 @@ function setStatus(stateCode, title, detail) {
 // INCIDENT PROTOCOLS
 // ==========================================
 function triggerAlarm() {
+    if (isAlarmActive) return; // ALREADY TRIGGERED
+    isAlarmActive = true;
+
     logEvent('CRITICAL: Driver unresponsive. Cabin alarm engaged. INCIDENT RECORDED.', 't-crit');
     markIncident();
 
@@ -453,11 +472,12 @@ function triggerAlarm() {
     startHDAudioAlarm();
 
     let countdown = EMERGENCY_CALL_DELAY;
-    countdownEl.innerText = String(countdown).padStart(2, '0');
+    if (countdownEl) countdownEl.innerText = String(countdown).padStart(2, '0');
 
+    if (countdownInterval) clearInterval(countdownInterval);
     countdownInterval = setInterval(() => {
         countdown--;
-        countdownEl.innerText = String(countdown).padStart(2, '0');
+        if (countdownEl) countdownEl.innerText = String(countdown).padStart(2, '0');
         if (countdown <= 0) {
             clearInterval(countdownInterval);
             triggerEmergency();
@@ -468,29 +488,26 @@ function triggerAlarm() {
 function dismissAlarm() {
     logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
 
-    alarmOverlay.classList.add('hidden');
+    if (alarmOverlay) alarmOverlay.classList.add('hidden');
     stopHDAudioAlarm();
 
-    clearInterval(countdownInterval);
-    clearTimeout(emergencyTimer);
+    if (countdownInterval) clearInterval(countdownInterval);
+    if (emergencyTimer) clearTimeout(emergencyTimer);
 
-    currentSleepSessionStart = null;
-    hasLoggedDrowsyWarningThisSession = false;
-
-    if (drowsyStartTime) {
-        totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
-        drowsyStartTime = null;
-    }
+    isAlarmActive = false;
+    isEmergencyActive = false;
 }
 
 function triggerEmergency() {
+    if (isEmergencyActive) return;
+    isEmergencyActive = true;
+
     logEvent('ESCALATION: Fleet Dispatch / 911 Protocol Initiated.', 't-crit');
 
-    alarmOverlay.classList.add('hidden');
-    emergencyOverlay.classList.remove('hidden');
+    if (alarmOverlay) alarmOverlay.classList.add('hidden');
+    if (emergencyOverlay) emergencyOverlay.classList.remove('hidden');
 
     stopHDAudioAlarm();
-
     startSimulatedCall();
 }
 
@@ -549,8 +566,8 @@ function playDispatcherVoice() {
 function cancelEmergency() {
     logEvent('ABORT: Dispatch sequence terminated by local operator.', 't-info');
 
-    alarmOverlay.classList.add('hidden');
-    emergencyOverlay.classList.add('hidden');
+    if (alarmOverlay) alarmOverlay.classList.add('hidden');
+    if (emergencyOverlay) emergencyOverlay.classList.add('hidden');
 
     stopHDAudioAlarm();
     ringingSound.pause();
@@ -558,16 +575,13 @@ function cancelEmergency() {
 
     if (synth && synth.speaking) synth.cancel();
 
-    clearTimeout(emergencyTimer);
-    clearInterval(simulatedCallInterval);
+    if (emergencyTimer) clearTimeout(emergencyTimer);
+    if (simulatedCallInterval) clearInterval(simulatedCallInterval);
 
+    isAlarmActive = false;
+    isEmergencyActive = false;
     currentSleepSessionStart = null;
     hasLoggedDrowsyWarningThisSession = false;
-
-    if (drowsyStartTime) {
-        totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
-        drowsyStartTime = null;
-    }
 }
 
 // ==========================================
