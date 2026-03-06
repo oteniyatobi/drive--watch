@@ -533,25 +533,17 @@ function startSimulatedCall() {
 
     emergencyTimer = setTimeout(() => {
         try {
-            ringingSound.pause();
-            ringingSound.currentTime = 0;
-
+            // ringingSound.pause(); // Don't pause audio context before speech
             if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING FEED...";
             if (transferProgress) transferProgress.style.width = "100%";
             logEvent('Live connection established. Transmitting GPS and Feed.', 't-warn');
 
-            // 4. Silent Audio Anchor: Re-assert audio context activity right before speech
-            if (audioCtx) {
-                const anchor = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                gain.gain.value = 0.0001; // Effectively silent
-                anchor.connect(gain);
-                gain.connect(audioCtx.destination);
-                anchor.start();
-                anchor.stop(audioCtx.currentTime + 0.1);
-            }
+            // Force-Resume Loop (Extreme Measure)
+            const speechPulse = setInterval(() => {
+                if (synth) synth.resume();
+                if (!isEmergencyActive) clearInterval(speechPulse);
+            }, 500);
 
-            // CRITICAL: Always play automatically as requested
             playDispatcherVoice();
         } catch (e) {
             playDispatcherVoice();
@@ -577,54 +569,51 @@ function playDispatcherVoice() {
     try {
         if (!synth) return;
 
-        // 1. Triple-Wake Engine (Cancel -> Resume -> Resume)
-        synth.cancel();
+        // CRITICAL: No cancel() - it can block the engine on some Windows builds
         synth.resume();
 
         const msg = "Emergency alert from Driver Watch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
         dispatchUtterance = new SpeechSynthesisUtterance(msg);
-        dispatchUtterance.rate = 1.0; // Standard rate for local voices
+        dispatchUtterance.rate = 1.0;
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
-        // Hardware Wait
         let voices = synth.getVoices();
         const selectedVoice = getBestVoice();
-        if (selectedVoice) dispatchUtterance.voice = selectedVoice;
+        if (selectedVoice) {
+            dispatchUtterance.voice = selectedVoice;
+            logEvent(`VOICE: Prepared with ${selectedVoice.name}.`, 't-info');
+        } else {
+            logEvent('VOICE: Prepared with System Default.', 't-warn');
+        }
 
-        // Final event hooks
         dispatchUtterance.onstart = () => {
-            logEvent(`VOICE: Transmission active (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
+            logEvent('VOICE: BOT TRANSMISSION ACTIVE.', 't-succ');
+            // Stop the ringing after speech starts to be safe
+            ringingSound.pause();
+            ringingSound.currentTime = 0;
         };
 
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Logic Error:", e);
-            // Auto-recovery if interrupted
+            logEvent(`VOICE_ERROR: ${e.error}. Hardware state: ${synth.paused ? 'PAUSED' : 'ACTIVE'}`, 't-crit');
+            // Aggressive recovery
             if (e.error !== 'canceled') {
-                logEvent("VOICE_RECOVERY: Re-launching signal...", "t-crit");
-                setTimeout(() => synth.speak(dispatchUtterance), 500);
+                setTimeout(() => { if (isRunning && isEmergencyActive) synth.speak(dispatchUtterance); }, 1000);
             }
         };
 
-        // Execution Sandwich (Force-Resume after speak)
         synth.speak(dispatchUtterance);
-        synth.resume();
-
-        // Heartbeat Keep-Alive
-        if (heartbeatInterval) clearInterval(heartbeatInterval);
-        heartbeatInterval = setInterval(() => {
-            if (synth.speaking) {
-                synth.pause();
-                synth.resume();
-            } else {
-                clearInterval(heartbeatInterval);
-                heartbeatInterval = null;
-            }
-        }, 5000); // More aggressive heartbeat for local voices
+        synth.resume(); // Ensure it pushes through the queue
 
     } catch (e) {
         console.error("Voice Logic Crash:", e);
     }
+}
+
+    } catch (e) {
+    console.error("Voice Logic Crash:", e);
+}
 }
 
 function cancelEmergency() {
