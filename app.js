@@ -23,6 +23,12 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let isRecording = false;
 
+// IndexedDB Constants
+const DB_NAME = 'DriverWatchDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'videos';
+let db = null;
+
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
 // ==========================================
@@ -215,6 +221,7 @@ async function init() {
         logEvent('Monitoring active. Driver safety protocols engaged.', 't-succ');
 
         startRecording();
+        loadMediaVault();
 
     } catch (error) {
         if (startupMessage) {

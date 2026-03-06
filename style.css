@@ -617,7 +617,107 @@ button:disabled {
     border-radius: 2px;
     flex-grow: 1;
     overflow-y: auto;
-    max-height: 200px;
+    max-height: 180px;
+}
+
+/* ==========================================
+   MEDIA VAULT
+   ========================================== */
+.vault-module {
+    flex-grow: 1;
+}
+
+.vault-container {
+    background: #000;
+    border: 1px solid var(--sys-border);
+    padding: 0.5rem;
+    border-radius: 2px;
+    flex-grow: 1;
+    overflow-y: auto;
+    max-height: 250px;
+}
+
+.vault-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--sys-border);
+    font-family: var(--font-mono);
+}
+
+.vault-item:last-child {
+    border-bottom: none;
+}
+
+.vault-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.vault-type {
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
+.vault-time {
+    font-size: 0.65rem;
+    color: var(--acc-muted);
+}
+
+.vault-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-play,
+.btn-del {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.6rem;
+    border-radius: 2px;
+    border: 1px solid var(--sys-border-high);
+}
+
+.btn-play {
+    background: var(--sys-border);
+    color: var(--acc-primary);
+}
+
+.btn-play:hover {
+    background: var(--stat-active);
+    color: #000;
+    border-color: var(--stat-active);
+}
+
+.btn-del {
+    background: transparent;
+    color: var(--acc-muted);
+}
+
+.btn-del:hover {
+    color: var(--stat-danger);
+    border-color: var(--stat-danger);
+}
+
+/* VAULT PLAYER */
+.vault-player-panel {
+    border-color: var(--acc-muted);
+    max-width: 800px;
+}
+
+.close-vault {
+    margin-left: auto;
+    background: transparent;
+    color: var(--acc-muted);
+    border: 1px solid var(--sys-border);
+    padding: 0.2rem 0.6rem;
+    border-radius: 2px;
+}
+
+.close-vault:hover {
+    color: var(--acc-primary);
+    border-color: var(--acc-primary);
 }
 
 .terminal-line {
