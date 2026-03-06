@@ -195,7 +195,6 @@ const startBtn = document.getElementById('start-btn');
 const stopBtn = document.getElementById('stop-btn');
 const dismissAlarmBtn = document.getElementById('dismiss-alarm');
 const cancelEmergencyBtn = document.getElementById('cancel-emergency');
-const playDispatchVoiceBtn = document.getElementById('play-dispatch-voice');
 
 // Navigation
 const navSystemTag = document.getElementById('nav-system-tag');
@@ -239,7 +238,6 @@ startBtn.addEventListener('click', init);
 stopBtn.addEventListener('click', stopSystem);
 dismissAlarmBtn.addEventListener('click', dismissAlarm);
 cancelEmergencyBtn.addEventListener('click', cancelEmergency);
-if (playDispatchVoiceBtn) playDispatchVoiceBtn.addEventListener('click', () => { if (isEmergencyActive) playDispatcherVoice(); });
 
 // ==========================================
 // EVENT LOG KERNEL
