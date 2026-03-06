@@ -257,22 +257,19 @@ async function init() {
     stopHDWarningBeep();
     stopHDAudioAlarm();
     ringingSound.play().then(() => ringingSound.pause()).catch(e => { });
+
     if (synth) {
         synth.cancel();
         try {
-            // Prime the engine with a silent but valid utterance
+            // Prime the engine with a silent but valid utterance to unlock audio
             const prime = new SpeechSynthesisUtterance(' ');
             prime.volume = 0;
             synth.speak(prime);
-            logEvent('Speech engine initialized and primed.', 't-info');
+            logEvent('Speech synthesis subsystem initialized.', 't-info');
         } catch (e) { }
     }
 
     if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading Fleet Models...</div>';
-
-    if (synth.getVoices().length === 0) {
-        synth.addEventListener('voiceschanged', () => { });
-    }
 
     try {
         logEvent('Initializing Dashcam and Driver Status Monitor...', 't-info');
@@ -290,7 +287,6 @@ async function init() {
 
         document.getElementById("webcam-wrapper").appendChild(webcam.canvas);
 
-        // Build NN Bars
         const labelContainer = document.getElementById("label-container");
         labelContainer.innerHTML = '';
         for (let i = 0; i < maxPredictions; i++) {
@@ -315,7 +311,6 @@ async function init() {
 
         sessionInterval = setInterval(updateSessionStats, 1000);
 
-        // Update UI state
         stopBtn.disabled = false;
         navSystemTag.innerHTML = `SYSTEM: <span class="status-indicator ACTIVE">ACTIVE</span>`;
         cameraBadge.innerText = 'ONLINE';
@@ -338,16 +333,10 @@ async function init() {
     }
 }
 
-// ==========================================
-// CORE PROCESSING LOOP
-// ==========================================
 async function loop() {
     if (!isRunning) return;
-
     try {
         webcam.update();
-
-        // FPS Calc
         fpsMetrics.frames++;
         const now = Date.now();
         if (now - fpsMetrics.lastTime >= 1000) {
@@ -357,13 +346,11 @@ async function loop() {
             fpsMetrics.frames = 0;
             fpsMetrics.lastTime = now;
         }
-
         await predict();
     } catch (e) {
-        console.error("Loop Crack Detected:", e);
-        logEvent(`SYS_EXCEPTION: ${e.message}. Reboot recommended.`, 't-crit');
+        console.error("Loop Error:", e);
+        logEvent(`SYS_EXCEPTION: ${e.message}`, 't-crit');
     }
-
     window.requestAnimationFrame(loop);
 }
 
@@ -374,8 +361,6 @@ async function predict() {
 
     for (let i = 0; i < maxPredictions; i++) {
         const val = prediction[i].probability;
-        const valueStr = (val * 100).toFixed(1) + "%";
-
         const bar = document.getElementById(`bar-${i}`);
         const valText = document.getElementById(`val-${i}`);
         const classNameRaw = prediction[i].className.toLowerCase();
@@ -386,28 +371,19 @@ async function predict() {
 
         bar.className = `nn-fill ${type}`;
         bar.style.width = `${val * 100}%`;
-        valText.innerText = valueStr;
+        valText.innerText = (val * 100).toFixed(1) + "%";
 
-        if (type === 'sleepy' && val >= ASLEEP_THRESHOLD) {
-            isAsleep = true;
-        }
+        if (type === 'sleepy' && val >= ASLEEP_THRESHOLD) isAsleep = true;
     }
-
     handleDrowsinessLogic(isAsleep);
 }
 
-// ==========================================
-// RULE ENGINE
-// ==========================================
 function handleDrowsinessLogic(isAsleep) {
-    if (!alarmOverlay.classList.contains('hidden') || !emergencyOverlay.classList.contains('hidden')) {
-        return;
-    }
+    if (!alarmOverlay.classList.contains('hidden') || !emergencyOverlay.classList.contains('hidden')) return;
 
     if (isAsleep) {
         if (!currentSleepSessionStart) currentSleepSessionStart = Date.now();
         if (!drowsyStartTime) drowsyStartTime = Date.now();
-
         const sec = (Date.now() - currentSleepSessionStart) / 1000;
 
         if (sec > 1 && !hasLoggedDrowsyWarningThisSession) {
@@ -428,28 +404,20 @@ function handleDrowsinessLogic(isAsleep) {
             totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
             drowsyStartTime = null;
         }
-
         if (hasLoggedDrowsyWarningThisSession && currentSleepSessionStart) {
             logEvent('Driver alertness restored to nominal levels.', 't-info');
         }
-
         currentSleepSessionStart = null;
         hasLoggedDrowsyWarningThisSession = false;
-
         stopHDWarningBeep();
-
         setStatus('awake', 'DRIVER ALERT', 'Driver parameters stable.');
     }
 }
 
-// ==========================================
-// UX FEEDBACK
-// ==========================================
 function setStatus(stateCode, title, detail) {
     if (cameraContainer) cameraContainer.className = `camera-wrapper ${stateCode}`;
     if (headerStatusDot) headerStatusDot.className = `status-dot ${stateCode}`;
     if (mainStatusCard) mainStatusCard.className = `assessment-container ${stateCode}`;
-
     if (bigStatusLabel) {
         bigStatusLabel.innerText = title;
         bigStatusLabel.className = `assessment-value ${stateCode}`;
@@ -457,22 +425,15 @@ function setStatus(stateCode, title, detail) {
     if (bigStatusSub) bigStatusSub.innerText = detail;
 }
 
-// ==========================================
-// INCIDENT PROTOCOLS
-// ==========================================
 function triggerAlarm() {
     if (isAlarmActive) return;
     isAlarmActive = true;
 
-    // UI FIRST: Ensure this happens even if other code fails
     if (alarmOverlay) alarmOverlay.classList.remove('hidden');
     setStatus('sleepy', 'CRITICAL ALARM', 'Driver unresponsive. Emergency protocols active.');
 
-    logEvent('CRITICAL: Driver unresponsive. Cabin alarm engaged. INCIDENT RECORDED.', 't-crit');
-
-    try {
-        markIncident();
-    } catch (e) { console.warn("Incident logging fail:", e); }
+    logEvent('CRITICAL: Driver unresponsive. Alarm engaged. Incident Recorded.', 't-crit');
+    try { markIncident(); } catch (e) { }
 
     totalAlerts++;
     if (statAlerts) statAlerts.innerText = String(totalAlerts).padStart(2, '0');
@@ -495,45 +456,30 @@ function triggerAlarm() {
 
 function dismissAlarm() {
     logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
-
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     stopHDAudioAlarm();
-
     if (countdownInterval) clearInterval(countdownInterval);
     if (emergencyTimer) clearTimeout(emergencyTimer);
-
     isAlarmActive = false;
     isEmergencyActive = false;
-    currentSleepSessionStart = null;
-    hasLoggedDrowsyWarningThisSession = false;
-
-    if (drowsyStartTime) {
-        totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
-        drowsyStartTime = null;
-    }
 }
 
 function triggerEmergency() {
     if (isEmergencyActive) return;
     isEmergencyActive = true;
 
-    // UI FIRST
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     if (emergencyOverlay) emergencyOverlay.classList.remove('hidden');
     setStatus('sleepy', 'DISPATCH CALLED', 'Fleet emergency protocols in progress.');
 
     logEvent('ESCALATION: Fleet Dispatch / 911 Protocol Initiated.', 't-crit');
-
     stopHDAudioAlarm();
     startSimulatedCall();
 }
 
 function startSimulatedCall() {
     logEvent('DIALING: Connecting to emergency dispatch relay...', 't-info');
-    ringingSound.play().catch(e => {
-        console.warn("Ringing sound blocked:", e);
-        logEvent('Audio alert limited. Visual protocol continuing.', 't-warn');
-    });
+    ringingSound.play().catch(e => { });
 
     if (emergencyStatusText) emergencyStatusText.innerText = "CONTACTING DISPATCH...";
     if (transferProgress) transferProgress.style.width = "10%";
@@ -543,9 +489,9 @@ function startSimulatedCall() {
             ringingSound.pause();
             ringingSound.currentTime = 0;
 
-            if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING DATA...";
+            if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING FEED...";
             if (transferProgress) transferProgress.style.width = "100%";
-            logEvent('Live cell connection established. Transmitting GPS and dashcam feed.', 't-warn');
+            logEvent('Live connection established. Transmitting GPS and Feed.', 't-warn');
 
             let seconds = 0;
             if (simulatedCallInterval) clearInterval(simulatedCallInterval);
@@ -560,110 +506,87 @@ function startSimulatedCall() {
 
             playDispatcherVoice();
         } catch (e) {
-            console.error("Call Transition Error:", e);
-            logEvent("ALERT: Dispatch voice system error. Protocol automated.", "t-crit");
-            playDispatcherVoice(); // Try again or just continue
+            playDispatcherVoice();
         }
     }, 3000);
 }
 
+function getBestVoice() {
+    if (!synth) return null;
+    const voices = synth.getVoices();
+    if (voices.length === 0) return null;
+    return voices.find(v => v.lang.includes('en-US') && (v.name.includes('Female') || v.name.includes('Google'))) ||
+        voices.find(v => v.lang.includes('en-US')) ||
+        voices[0];
+}
+
 function playDispatcherVoice() {
     try {
-        if (!synth) {
-            logEvent("CRITICAL: Voice engine missing from hardware.", "t-crit");
-            return;
-        }
+        if (!synth) return;
 
+        // Final reset logic
         synth.cancel();
-        synth.resume(); // Fix potential pause state
+        synth.resume();
 
         const msg = "Emergency alert from Driver Watch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
         dispatchUtterance = new SpeechSynthesisUtterance(msg);
-
-        // Priority settings
-        dispatchUtterance.rate = 0.9;
+        dispatchUtterance.rate = 0.95;
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
-        const voices = synth.getVoices();
-        let selectedVoice = null;
-        if (voices.length > 0) {
-            selectedVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
-            dispatchUtterance.voice = selectedVoice;
-        }
+        const selectedVoice = getBestVoice();
+        if (selectedVoice) dispatchUtterance.voice = selectedVoice;
 
         dispatchUtterance.onstart = () => {
-            logEvent(`VOICE_RELAY: Transmitting dispatch message (${selectedVoice ? selectedVoice.name : 'Default Voice'}).`, 't-succ');
+            logEvent(`VOICE_RELAY: Transmitting dispatch voice (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
         };
 
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Error:", e);
-            logEvent(`VOICE_ERROR: Transmission blocked by browser (${e.error}).`, "t-crit");
+            logEvent("VOICE_ERROR: Execution failed. Retrying...", "t-crit");
+            // Simple recovery
+            setTimeout(() => synth.speak(dispatchUtterance), 500);
         };
 
-        // Final speak command
+        // Execution chain
+        synth.cancel();
+        synth.resume();
         synth.speak(dispatchUtterance);
 
-        // Safety timeout in case onstart doesn't fire
-        setTimeout(() => {
-            if (!synth.speaking) {
-                console.warn("Speech engine seems stuck. Attempting force-restart.");
-                synth.resume();
-            }
-        }, 500);
-
     } catch (e) {
-        console.error("Voice execution failed:", e);
-        logEvent("SYS_VOICE_ERROR: Emergency automation failed.", "t-crit");
+        console.error("Voice failed:", e);
     }
 }
 
 function cancelEmergency() {
-    logEvent('ABORT: Dispatch sequence terminated by local operator.', 't-info');
-
+    logEvent('ABORT: Dispatch sequence terminated by operator.', 't-info');
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     if (emergencyOverlay) emergencyOverlay.classList.add('hidden');
-
     stopHDAudioAlarm();
     ringingSound.pause();
     ringingSound.currentTime = 0;
-
-    if (synth && synth.speaking) synth.cancel();
-
+    if (synth) synth.cancel();
     if (emergencyTimer) clearTimeout(emergencyTimer);
     if (simulatedCallInterval) clearInterval(simulatedCallInterval);
-
     isAlarmActive = false;
     isEmergencyActive = false;
-    currentSleepSessionStart = null;
-    hasLoggedDrowsyWarningThisSession = false;
 }
 
-// ==========================================
-// DASHCAM SUBSYSTEM
-// ==========================================
 function startRecording() {
     if (!webcam.canvas) return;
     const stream = webcam.canvas.captureStream(30);
     recordedChunks = [];
-
     try {
-        // Use standard webm to ensure max compatibility across all browsers
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
     } catch (e) {
         mediaRecorder = new MediaRecorder(stream);
     }
-
     mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-        }
+        if (event.data.size > 0) recordedChunks.push(event.data);
     };
-
     mediaRecorder.onstop = saveFullSession;
     mediaRecorder.start(1000);
     isRecording = true;
-    logEvent('Dashcam recording initialized.', 't-info');
     document.getElementById('recording-dot').classList.add('active');
 }
 
@@ -676,108 +599,54 @@ function stopRecording() {
 }
 
 function markIncident() {
-    logEvent('ALERT: CRITICAL INCIDENT TIMESTAMPED. GENERATING CLIP...', 't-crit');
-
     if (recordedChunks.length > 0) {
         const timestamp = new Date().getTime();
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
-
         saveVideoToDB(`incident_${timestamp}`, blob, 'INCIDENT');
-
-        const url = URL.createObjectURL(blob);
-        const entry = document.createElement('div');
-        entry.className = `terminal-line t-crit`;
-        const time = new Date().toLocaleTimeString();
-        entry.innerHTML = `<span class="time">[${time}]</span> <a href="${url}" download="incident_clip_${timestamp}.webm" style="color:var(--stat-danger); font-weight:800; text-decoration:underline;">[DOWNLOAD INSTANT INCIDENT CLIP]</a>`;
-        activityLog.prepend(entry);
     }
 }
 
 function saveFullSession() {
     const timestamp = new Date().getTime();
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
-
     saveVideoToDB(`session_${timestamp}`, blob, 'FULL SESSION');
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = `driverwatch_session_${timestamp}.webm`;
-    document.body.appendChild(a);
-    logEvent('Session recording compiled and saved to Vault.', 't-succ');
-
-    const entry = document.createElement('div');
-    entry.className = `terminal-line t-succ`;
-    entry.innerHTML = `<span class="time">[${new Date().toLocaleTimeString()}]</span> <a href="${url}" download="session.webm" style="color:var(--accent-green); text-decoration:underline;">DOWNLOAD FULL SESSION RECAP</a>`;
-    activityLog.prepend(entry);
 }
 
-// ==========================================
-// STORAGE & VAULT SUBSYSTEM (IndexedDB)
-// ==========================================
 function initDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onerror = (event) => reject('Database error: ' + event.target.errorCode);
-        request.onsuccess = (event) => {
-            db = event.target.result;
-            resolve(db);
-        };
-        request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        };
+        request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        request.onupgradeneeded = (e) => { e.target.result.createObjectStore(STORE_NAME, { keyPath: 'id' }); };
+        request.onerror = (e) => reject(e);
     });
 }
 
 function saveVideoToDB(id, blob, type) {
-    if (!db) {
-        logEvent('Storage unavailable. Unable to save to Vault.', 't-warn');
-        return;
-    }
+    if (!db) return;
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
-    const videoData = {
-        id: id,
-        blob: blob,
-        type: type,
-        timestamp: new Date().toLocaleString()
-    };
-    const request = store.put(videoData);
-    request.onsuccess = () => {
-        logEvent(`Video saved to Media Vault: ${type}`, 't-info');
-        loadMediaVault();
-    };
+    store.put({ id: id, blob: blob, type: type, timestamp: new Date().toLocaleString() });
+    loadMediaVault();
 }
 
 async function loadMediaVault() {
     const vaultContainer = document.getElementById('vault-list');
     if (!vaultContainer || !db) return;
     vaultContainer.innerHTML = '';
-
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
-
-    request.onsuccess = (event) => {
+    store.getAll().onsuccess = (event) => {
         const videos = event.target.result;
         if (videos.length === 0) {
-            vaultContainer.innerHTML = '<div class="empty-data">NO RECORDS FOUND</div>';
+            vaultContainer.innerHTML = '<div class="empty-data">NO RECORDS</div>';
             return;
         }
-
-        videos.sort((a, b) => {
-            const timeA = parseInt(a.id.split('_')[1]) || 0;
-            const timeB = parseInt(b.id.split('_')[1]) || 0;
-            return timeB - timeA;
-        }).forEach(video => {
+        videos.forEach(video => {
             const item = document.createElement('div');
             item.className = 'vault-item';
-            const isIncident = video.type === 'INCIDENT';
             item.innerHTML = `
                 <div class="vault-info">
-                    <span class="vault-type ${isIncident ? 't-crit' : 't-succ'}">${video.type}</span>
+                    <span class="vault-type">${video.type}</span>
                     <span class="vault-time">${video.timestamp}</span>
                 </div>
                 <div class="vault-actions">
@@ -793,108 +662,46 @@ async function loadMediaVault() {
 function playVideo(id) {
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(id);
-
-    request.onsuccess = (event) => {
+    store.get(id).onsuccess = (event) => {
         const video = event.target.result;
         if (!video) return;
-
-        const url = URL.createObjectURL(video.blob);
         const player = document.getElementById('vault-player');
         const modal = document.getElementById('vault-modal');
-
-        // Reset player to ensure fresh load
-        player.pause();
-        player.src = "";
-        player.load();
-
-        player.src = url;
+        player.src = URL.createObjectURL(video.blob);
         modal.classList.remove('hidden');
-
-        player.oncanplay = () => {
-            player.play().catch(e => console.error("Playback failed:", e));
-        };
-
-        player.onerror = (e) => {
-            logEvent("Playback Error: File format mismatch.", "t-crit");
-            console.error("Video Error:", player.error);
-        };
+        player.play();
     };
 }
 
 function closeVaultPlayer() {
-    const player = document.getElementById('vault-player');
-    const modal = document.getElementById('vault-modal');
-    player.pause();
-    modal.classList.add('hidden');
+    document.getElementById('vault-player').pause();
+    document.getElementById('vault-modal').classList.add('hidden');
 }
 
 function deleteVideo(id) {
-    if (confirm('Delete this recording forever?')) {
+    if (confirm('Delete?')) {
         const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        store.delete(id).onsuccess = () => {
-            logEvent('Media purged from vault.', 't-warn');
-            loadMediaVault();
-        };
+        db.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).delete(id).onsuccess = loadMediaVault;
     }
 }
 
-// ==========================================
-// TELEMETRY UPDATER
-// ==========================================
 function updateSessionStats() {
     if (!sessionStartTime) return;
-
     const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
-    const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
-    const secs = String(elapsed % 60).padStart(2, '0');
-    statUptime.innerText = `${mins}:${secs}`;
-
+    statUptime.innerText = String(Math.floor(elapsed / 60)).padStart(2, '0') + ":" + String(elapsed % 60).padStart(2, '0');
     let currentDrowsy = totalDrowsySeconds;
-    if (drowsyStartTime) {
-        currentDrowsy += (Date.now() - drowsyStartTime) / 1000;
-    }
+    if (drowsyStartTime) currentDrowsy += (Date.now() - drowsyStartTime) / 1000;
     statDrowsy.innerText = Math.round(currentDrowsy) + 's';
-
     const alertness = elapsed > 0 ? Math.max(0, (100 - (currentDrowsy / elapsed * 100))) : 100;
     statScore.innerText = alertness.toFixed(1) + '%';
-    statScore.style.color = alertness >= 80 ? 'var(--stat-active)' :
-        alertness >= 50 ? 'var(--stat-warn)' : 'var(--stat-danger)';
 }
 
-// ==========================================
-// TERMINATION
-// ==========================================
 function stopSystem() {
-    logEvent('System shut down by operator command.', 't-info');
-
-    stopRecording();
     isRunning = false;
-    predictionHistory = [];
+    stopRecording();
     clearInterval(sessionInterval);
-
-    if (webcam) {
-        webcam.stop();
-        document.getElementById("webcam-wrapper").innerHTML = `
-            <div class="standby-screen" id="startup-message">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-                <div class="standby-text">SYSTEM OFFLINE</div>
-            </div>
-        `;
-    }
-
+    if (webcam) webcam.stop();
     startBtn.disabled = false;
     stopBtn.disabled = true;
-
     navSystemTag.innerHTML = `SYSTEM: <span class="status-indicator">STANDBY</span>`;
-    cameraBadge.innerText = 'INACTIVE';
-    cameraBadge.className = 'panel-badge';
-    liveIndicator.classList.remove('active');
-    footerDataStream.innerText = `FPS: -- | RES: --`;
-
-    setStatus('neutral', 'NOT DETECTED', 'Awaiting Initialization...');
 }
