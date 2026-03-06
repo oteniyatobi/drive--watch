@@ -513,16 +513,16 @@ function startSimulatedCall() {
             if (transferProgress) transferProgress.style.width = "100%";
             logEvent('Live connection established. Transmitting GPS and Feed.', 't-warn');
 
-            let seconds = 0;
-            if (simulatedCallInterval) clearInterval(simulatedCallInterval);
-            simulatedCallInterval = setInterval(() => {
-                seconds++;
-                if (callTimer) {
-                    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
-                    const s = String(seconds % 60).padStart(2, '0');
-                    callTimer.innerText = `${m}:${s}`;
-                }
-            }, 1000);
+            // 4. Silent Audio Anchor: Re-assert audio context activity right before speech
+            if (audioCtx) {
+                const anchor = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                gain.gain.value = 0.0001; // Effectively silent
+                anchor.connect(gain);
+                gain.connect(audioCtx.destination);
+                anchor.start();
+                anchor.stop(audioCtx.currentTime + 0.1);
+            }
 
             playDispatcherVoice();
         } catch (e) {
@@ -544,7 +544,7 @@ function playDispatcherVoice() {
     try {
         if (!synth) return;
 
-        // 1. Force clear and resume to wake the engine
+        // 1. Reset and Wake Engine
         synth.cancel();
         synth.resume();
 
@@ -554,42 +554,32 @@ function playDispatcherVoice() {
         dispatchUtterance.pitch = 1.0;
         dispatchUtterance.volume = 1.0;
 
-        // 2. Wait for voices if not loaded (Chrome quirk)
+        // 2. Hardware Wait (Chrome Quirk)
         let voices = synth.getVoices();
         if (voices.length === 0) {
-            logEvent('Waiting for voice hardware to warm up...', 't-info');
             setTimeout(playDispatcherVoice, 100);
             return;
         }
 
         const selectedVoice = getBestVoice();
-        if (selectedVoice) {
-            dispatchUtterance.voice = selectedVoice;
-        }
+        if (selectedVoice) dispatchUtterance.voice = selectedVoice;
 
-
-        // 3. Force-Resume Sandwich (Proven to unstick Windows/Chrome speech)
-        synth.cancel();
-        synth.resume();
-
-        // Final utterance preparation
+        // 3. Execution Sandwich (Force-Resume after speak)
         dispatchUtterance.onstart = () => {
-            logEvent(`VOICE: Active (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
+            logEvent(`VOICE: Transmission active (${selectedVoice ? selectedVoice.name : 'System'}).`, 't-succ');
         };
 
         dispatchUtterance.onerror = (e) => {
-            console.error("Speech Error:", e);
+            console.error("Speech Logic Error:", e);
             if (e.error !== 'interrupted') {
-                logEvent(`VOICE_RECOVERY: Syncing...`, "t-crit");
                 setTimeout(() => synth.speak(dispatchUtterance), 1000);
             }
         };
 
-        // Execution
         synth.speak(dispatchUtterance);
-        synth.resume(); // Double-resume to bypass engine hibernating
+        synth.resume(); // CRITICAL: unstick engine
 
-        // Keep-alive heartbeat (fixes long utterance cut-off)
+        // Heartbeat Keep-Alive
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         heartbeatInterval = setInterval(() => {
             if (synth.speaking) {
@@ -602,8 +592,7 @@ function playDispatcherVoice() {
         }, 8000);
 
     } catch (e) {
-        console.error("Voice failed:", e);
-        logEvent("SYS_VOICE_ERROR: Dispatch automation failed.", "t-crit");
+        console.error("Voice Logic Crash:", e);
     }
 }
 
