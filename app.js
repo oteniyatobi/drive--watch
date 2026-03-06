@@ -48,6 +48,7 @@ ringingSound.loop = true;
 
 const synth = window.speechSynthesis;
 let dispatchUtterance = null;
+let heartbeatInterval = null; // Manage speech keep-alive
 let currentPulseInterval = null;
 let currentWarningInterval = null;
 
@@ -458,10 +459,21 @@ function dismissAlarm() {
     logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     stopHDAudioAlarm();
+
     if (countdownInterval) clearInterval(countdownInterval);
     if (emergencyTimer) clearTimeout(emergencyTimer);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+
     isAlarmActive = false;
     isEmergencyActive = false;
+
+    // CRITICAL: Reset drowsiness state to prevent looping
+    currentSleepSessionStart = null;
+    hasLoggedDrowsyWarningThisSession = false;
+    if (drowsyStartTime) {
+        totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
+        drowsyStartTime = null;
+    }
 }
 
 function triggerEmergency() {
@@ -564,12 +576,14 @@ function playDispatcherVoice() {
         synth.speak(dispatchUtterance);
 
         // Keep-alive heartbeat (fixes long utterance cut-off in Chrome)
-        const heartbeat = setInterval(() => {
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        heartbeatInterval = setInterval(() => {
             if (synth.speaking) {
                 synth.pause();
                 synth.resume();
             } else {
-                clearInterval(heartbeat);
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
             }
         }, 8000);
 
@@ -586,11 +600,22 @@ function cancelEmergency() {
     stopHDAudioAlarm();
     ringingSound.pause();
     ringingSound.currentTime = 0;
+
     if (synth) synth.cancel();
     if (emergencyTimer) clearTimeout(emergencyTimer);
     if (simulatedCallInterval) clearInterval(simulatedCallInterval);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+
     isAlarmActive = false;
     isEmergencyActive = false;
+
+    // Reset drowsiness state
+    currentSleepSessionStart = null;
+    hasLoggedDrowsyWarningThisSession = false;
+    if (drowsyStartTime) {
+        totalDrowsySeconds += (Date.now() - drowsyStartTime) / 1000;
+        drowsyStartTime = null;
+    }
 }
 
 function startRecording() {
