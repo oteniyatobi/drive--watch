@@ -611,10 +611,6 @@ function playDispatcherVoice() {
     }
 }
 
-    } catch (e) {
-    console.error("Voice Logic Crash:", e);
-}
-}
 
 function cancelEmergency() {
     logEvent('ABORT: Dispatch sequence terminated by operator.', 't-info');
