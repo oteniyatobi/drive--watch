@@ -1,0 +1,8 @@
+# Environment Variables - NEVER commit this file
+.env
+
+# Dependencies
+node_modules/
+
+# Build output
+.vercel/

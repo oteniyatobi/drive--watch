@@ -1,0 +1,8 @@
+{
+    "name": "driverwatch-enterprise",
+    "version": "1.0.0",
+    "description": "DriverWatch Enterprise Safety System",
+    "dependencies": {
+        "twilio": "^5.0.0"
+    }
+}

@@ -617,20 +617,27 @@ async function startRealDispatch() {
     await new Promise(r => setTimeout(r, 1500));
 
     if (contactPhone) {
-        const message = encodeURIComponent(
-            `🚨 DRIVERWATCH EMERGENCY ALERT 🚨\n\n` +
-            `DRIVER: ${driverName}\n` +
-            `STATUS: Driver detected as UNRESPONSIVE by AI safety system.\n` +
-            `TIME: ${new Date().toLocaleTimeString()}\n\n` +
-            `📍 LIVE LOCATION:\n${mapsLink}\n\n` +
-            `Please call the driver immediately or contact emergency services.\n` +
-            `This is an automated alert from DriverWatch Enterprise Safety System.`
-        );
-        // Strip non-digits from phone number for wa.me
-        const cleanPhone = contactPhone.replace(/\D/g, '');
-        const waUrl = `https://wa.me/${cleanPhone}?text=${message}`;
-        window.open(waUrl, '_blank');
-        logEvent(`WHATSAPP: Emergency message sent to ${contactName}.`, 't-succ');
+        try {
+            logEvent(`WHATSAPP: Sending automated alert to ${contactName}...`, 't-info');
+            const response = await fetch('/api/send-alert', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: contactPhone,
+                    driverName: driverName,
+                    mapsLink: mapsLink,
+                    time: new Date().toLocaleTimeString()
+                })
+            });
+            const result = await response.json();
+            if (response.ok && result.success) {
+                logEvent(`WHATSAPP: ✅ Emergency alert delivered to ${contactName}.`, 't-succ');
+            } else {
+                logEvent(`WHATSAPP: ⚠️ Alert failed — ${result.error || 'Unknown error'}`, 't-warn');
+            }
+        } catch (err) {
+            logEvent(`WHATSAPP: ⚠️ Network error sending alert — ${err.message}`, 't-warn');
+        }
     } else {
         logEvent('WHATSAPP: No emergency contact phone on file.', 't-warn');
     }
