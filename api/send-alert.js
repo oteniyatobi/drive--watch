@@ -1,3 +1,4 @@
+// [DEPLOYMENT REFRESH] Triggering new build to pick up Vercel environment variables.
 // ==========================================
 // DRIVERWATCH - VERCEL SERVERLESS FUNCTION
 // POST /api/send-alert
