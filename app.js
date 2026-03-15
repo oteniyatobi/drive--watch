@@ -34,7 +34,7 @@ let geoWatchId = null;
 const DB_NAME = 'DriverWatchDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'videos';
-let db = null;
+let localDb = null;
 
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
@@ -764,15 +764,15 @@ function saveFullSession() {
 function initDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        request.onsuccess = (e) => { localDb = e.target.result; resolve(localDb); };
         request.onupgradeneeded = (e) => { e.target.result.createObjectStore(STORE_NAME, { keyPath: 'id' }); };
         request.onerror = (e) => reject(e);
     });
 }
 
 function saveVideoToDB(id, blob, type) {
-    if (!db) return;
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    if (!localDb) return;
+    const transaction = localDb.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     store.put({ id: id, blob: blob, type: type, timestamp: new Date().toLocaleString() });
     loadMediaVault();
@@ -780,9 +780,9 @@ function saveVideoToDB(id, blob, type) {
 
 async function loadMediaVault() {
     const vaultContainer = document.getElementById('vault-list');
-    if (!vaultContainer || !db) return;
+    if (!vaultContainer || !localDb) return;
     vaultContainer.innerHTML = '';
-    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const transaction = localDb.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     store.getAll().onsuccess = (event) => {
         const videos = event.target.result;
@@ -809,12 +809,12 @@ async function loadMediaVault() {
 }
 
 function playVideo(id) {
-    if (!db) {
+    if (!localDb) {
         logEvent('Database not initialized. Cannot play video.', 't-warn');
         return;
     }
 
-    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const transaction = localDb.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.get(id);
 
@@ -894,8 +894,8 @@ function closeVaultPlayer() {
 
 function deleteVideo(id) {
     if (confirm('Delete?')) {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        db.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).delete(id).onsuccess = loadMediaVault;
+        const transaction = localDb.transaction([STORE_NAME], 'readwrite');
+        localDb.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).delete(id).onsuccess = loadMediaVault;
     }
 }
 
