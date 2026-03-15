@@ -71,7 +71,7 @@ auth.onAuthStateChanged(async (user) => {
             const doc = await db.collection('users').doc(user.uid).get();
             if (doc.exists) {
                 // User is fully set up, redirect to dashboard
-                window.location.href = 'index.html';
+                window.location.href = '/';
             } else {
                 // User is authenticated via Google/Phone but needs to provide Emergency Contact
                 document.getElementById('login-view').style.display = 'none';
@@ -260,7 +260,7 @@ document.getElementById('onboarding-view').addEventListener('submit', async (e) 
                 });
 
                 // Success - redirect manually
-                window.location.href = 'index.html';
+                window.location.href = '/';
 
             } catch (err) {
                 errorDiv.textContent = err.message;
