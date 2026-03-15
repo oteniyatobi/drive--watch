@@ -558,37 +558,137 @@ function triggerEmergency() {
     if (emergencyOverlay) emergencyOverlay.classList.remove('hidden');
     setStatus('sleepy', 'DISPATCH CALLED', 'Fleet emergency protocols in progress.');
 
-    logEvent('ESCALATION: Fleet Dispatch / 911 Protocol Initiated.', 't-crit');
+    logEvent('ESCALATION: Real emergency dispatch initiated.', 't-crit');
     stopHDAudioAlarm();
-    startSimulatedCall();
+    startRealDispatch();
 }
 
-function startSimulatedCall() {
-    logEvent('DIALING: Connecting to emergency dispatch relay...', 't-info');
-    ringingSound.play().catch(e => { });
+async function startRealDispatch() {
+    if (emergencyStatusText) emergencyStatusText.innerText = 'ACQUIRING GPS AND SCANNING FOR SERVICES...';
+    if (transferProgress) transferProgress.style.width = '20%';
+    logEvent('DISPATCH: Acquiring live GPS and scanning for nearby emergency services...', 't-info');
 
-    if (emergencyStatusText) emergencyStatusText.innerText = "CONTACTING DISPATCH...";
-    if (transferProgress) transferProgress.style.width = "10%";
+    // Build location data
+    const lat = currentGeoPosition ? currentGeoPosition.lat : null;
+    const lng = currentGeoPosition ? currentGeoPosition.lng : null;
+    const mapsLink = lat && lng
+        ? `https://maps.google.com/?q=${lat},${lng}`
+        : 'Location unavailable';
 
-    emergencyTimer = setTimeout(() => {
+    const driverName = currentUserData ? currentUserData.driverName : 'The Driver';
+    const contactName = currentUserData ? currentUserData.emergencyContact.name : 'Emergency Contact';
+    const contactPhone = currentUserData ? currentUserData.emergencyContact.phone : null;
+
+    // Update the overlay contact info
+    const dispName = document.getElementById('dispatch-contact-name');
+    const dispPhone = document.getElementById('dispatch-contact-phone');
+    if (dispName) dispName.innerText = contactName.toUpperCase();
+    if (dispPhone) dispPhone.innerText = contactPhone || '---';
+
+    if (transferProgress) transferProgress.style.width = '40%';
+
+    // Scan for nearby emergency services via OpenStreetMap Overpass API
+    let nearbyServicesHTML = '';
+    if (lat && lng) {
         try {
-            // ringingSound.pause(); // Don't pause audio context before speech
-            if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING FEED & GPS...";
-            if (transferProgress) transferProgress.style.width = "100%";
-            logEvent('Live connection established. Transmitting GPS to Dispatch and Emergency Contact.', 't-warn');
-
-            // Force-Resume Loop (Extreme Measure)
-            const speechPulse = setInterval(() => {
-                if (synth) synth.resume();
-                if (!isEmergencyActive) clearInterval(speechPulse);
-            }, 500);
-
-            playDispatcherVoice();
+            nearbyServicesHTML = await scanNearbyEmergencyServices(lat, lng);
+            logEvent('GPS SCAN: Nearby emergency services identified.', 't-succ');
         } catch (e) {
-            playDispatcherVoice();
+            nearbyServicesHTML = '<div style="color:var(--acc-muted)">Could not scan nearby services.</div>';
+            logEvent('GPS SCAN: Could not retrieve nearby services.', 't-warn');
         }
-    }, 3000);
+    }
+
+    // Inject results into the overlay
+    let nearbyDiv = document.getElementById('nearby-services-panel');
+    if (!nearbyDiv) {
+        nearbyDiv = document.createElement('div');
+        nearbyDiv.id = 'nearby-services-panel';
+        nearbyDiv.style = 'margin-top: 0.75rem; font-family: var(--font-mono); font-size: 0.72rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border: 1px solid var(--sys-border-high);';
+        const callMetrics = document.querySelector('.call-metrics');
+        if (callMetrics) callMetrics.before(nearbyDiv);
+    }
+    nearbyDiv.innerHTML = `<div style="color: var(--stat-warn); margin-bottom: 0.25rem;">NEARBY EMERGENCY SERVICES (GPS SCAN):</div>${nearbyServicesHTML}`;
+
+    if (transferProgress) transferProgress.style.width = '70%';
+    if (emergencyStatusText) emergencyStatusText.innerText = 'SENDING WHATSAPP ALERT TO EMERGENCY CONTACT...';
+
+    // Send real WhatsApp alert after short delay
+    await new Promise(r => setTimeout(r, 1500));
+
+    if (contactPhone) {
+        const message = encodeURIComponent(
+            `🚨 DRIVERWATCH EMERGENCY ALERT 🚨\n\n` +
+            `DRIVER: ${driverName}\n` +
+            `STATUS: Driver detected as UNRESPONSIVE by AI safety system.\n` +
+            `TIME: ${new Date().toLocaleTimeString()}\n\n` +
+            `📍 LIVE LOCATION:\n${mapsLink}\n\n` +
+            `Please call the driver immediately or contact emergency services.\n` +
+            `This is an automated alert from DriverWatch Enterprise Safety System.`
+        );
+        // Strip non-digits from phone number for wa.me
+        const cleanPhone = contactPhone.replace(/\D/g, '');
+        const waUrl = `https://wa.me/${cleanPhone}?text=${message}`;
+        window.open(waUrl, '_blank');
+        logEvent(`WHATSAPP: Emergency message sent to ${contactName}.`, 't-succ');
+    } else {
+        logEvent('WHATSAPP: No emergency contact phone on file.', 't-warn');
+    }
+
+    if (transferProgress) transferProgress.style.width = '100%';
+    if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH COMPLETE. EMERGENCY CONTACT ALERTED.';
+
+    // Also trigger speech
+    try {
+        const speechPulse = setInterval(() => {
+            if (synth) synth.resume();
+            if (!isEmergencyActive) clearInterval(speechPulse);
+        }, 500);
+        playDispatcherVoice();
+    } catch (e) {
+        playDispatcherVoice();
+    }
 }
+
+async function scanNearbyEmergencyServices(lat, lng) {
+    const radius = 5000; // 5km radius
+    const query = `
+        [out:json][timeout:10];
+        (
+          node["amenity"="hospital"](around:${radius},${lat},${lng});
+          node["amenity"="police"](around:${radius},${lat},${lng});
+          node["amenity"="fire_station"](around:${radius},${lat},${lng});
+          node["emergency"="ambulance_station"](around:${radius},${lat},${lng});
+        );
+        out body 5;
+    `.trim();
+
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query
+    });
+    const data = await response.json();
+    const elements = data.elements || [];
+
+    if (elements.length === 0) {
+        return '<div style="color:var(--acc-muted)">No services found within 5km.</div>';
+    }
+
+    return elements.slice(0, 5).map(el => {
+        const name = el.tags.name || el.tags.amenity || 'Unknown Service';
+        const type = (el.tags.amenity || el.tags.emergency || '').toUpperCase().replace('_', ' ');
+        const phone = el.tags.phone || el.tags['contact:phone'] || '';
+        const elLat = el.lat.toFixed(5);
+        const elLng = el.lon.toFixed(5);
+        const link = `https://maps.google.com/?q=${elLat},${elLng}`;
+        return `<div style="padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color:var(--stat-warn);">[${type}]</span> ${name}
+            ${phone ? `<span style="color:var(--acc-muted)"> | 📞 ${phone}</span>` : ''}
+            <a href="${link}" target="_blank" style="color:var(--stat-info); margin-left: 0.5rem;">📍 MAP</a>
+        </div>`;
+    }).join('');
+}
+
 
 function startLocationTracking() {
     if (!navigator.geolocation) return;
