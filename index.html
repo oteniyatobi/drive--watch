@@ -5,11 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DriverWatch Enterprise</title>
+    <link rel="icon" type="image/png" href="favicon.png">
     <link rel="stylesheet" href="style.css">
     <!-- Using a technical, geometric font for a professional look -->
     <link
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
 </head>
 
 <body>
@@ -26,9 +32,13 @@
                 <h1>DRIVERWATCH <span class="version">v3.0.0</span></h1>
             </div>
             <div class="system-tag" id="nav-system-tag">SYSTEM: <span class="status-indicator">STANDBY</span></div>
+            <div class="system-tag" id="nav-user-tag" style="margin-left: 1rem; border-color: var(--acc-dark);">
+                OPERATOR: <span class="status-indicator" style="color:var(--acc-primary)"
+                    id="nav-operator-name">UNKNOWN</span></div>
         </div>
         <div class="nav-right">
-            <div class="clock" id="nav-clock">00:00:00</div>
+            <div class="clock" id="nav-clock" style="margin-right: 1.5rem; display: inline-block;">00:00:00</div>
+            <button onclick="logout()" class="export-btn" style="vertical-align: top;">LOGOUT</button>
         </div>
     </header>
 
@@ -198,8 +208,17 @@
             </div>
 
             <div class="call-interface">
-                <div class="target-node">CALLING: FLEET DISPATCH</div>
-                <div class="call-status" id="emergency-status-text">CONNECTING TO DISPATCH...</div>
+                <div class="target-node">CALLING: FLEET DISPATCH & EMERGENCY CONTACT</div>
+                <div class="call-status" id="emergency-status-text">CONNECTING COMMUNICATION RELAYS...</div>
+
+                <div
+                    style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--acc-muted); margin-bottom: 0.5rem; background: rgba(0,0,0,0.5); padding: 0.5rem; border: 1px solid var(--sys-border-high);">
+                    <div>CONTACT 1: LOCAL DISPATCH (AUTOMATED 911 RELAY)</div>
+                    <div>CONTACT 2: <span id="dispatch-contact-name">UNKNOWN</span> (<span
+                            id="dispatch-contact-phone">---</span>)</div>
+                    <div style="margin-top: 0.5rem; color: var(--stat-warn);">LOC: <span
+                            id="dispatch-location">ACQUIRING GPS...</span></div>
+                </div>
 
                 <div class="data-transfer">
                     <div class="transfer-bar">

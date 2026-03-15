@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriverWatch Enterprise - Auth</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="style.css">
+    <!-- Using a technical, geometric font for a professional look -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js"></script>
+
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+
+    <style>
+        .auth-container {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .auth-panel {
+            background: var(--sys-panel);
+            border: 1px solid var(--sys-border);
+            border-radius: var(--radius);
+            padding: 2rem;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .auth-header h2 {
+            font-size: 1.25rem;
+            color: var(--acc-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .auth-header p {
+            color: var(--acc-muted);
+            font-size: 0.85rem;
+        }
+
+        .auth-toggle {
+            display: flex;
+            margin-bottom: 1.5rem;
+            background: var(--sys-bg);
+            border-radius: var(--radius);
+            border: 1px solid var(--sys-border-high);
+            overflow: hidden;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 0.75rem;
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            cursor: pointer;
+            color: var(--acc-muted);
+            transition: background 0.2s;
+        }
+
+        .toggle-btn.active {
+            background: var(--sys-border);
+            color: var(--acc-primary);
+            font-weight: bold;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+            position: relative;
+        }
+
+        .form-group label {
+            display: block;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--acc-muted);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.05em;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--sys-bg);
+            border: 1px solid var(--sys-border-high);
+            border-radius: var(--radius);
+            color: var(--acc-primary);
+            font-family: var(--font-sans);
+            font-size: 0.95rem;
+            transition: var(--transition);
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--stat-active);
+            box-shadow: 0 0 0 1px var(--stat-active);
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 1rem;
+            top: 2.1rem;
+            cursor: pointer;
+            color: var(--acc-muted);
+            z-index: 10;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            background: none;
+            border: none;
+        }
+
+        .password-toggle:hover {
+            color: var(--acc-primary);
+        }
+
+        .location-permission {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: var(--radius);
+        }
+
+        .location-permission input[type="checkbox"] {
+            margin-top: 0.25rem;
+            accent-color: var(--stat-info);
+        }
+
+        .location-permission label {
+            color: var(--acc-primary);
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        .error-message {
+            color: var(--stat-danger);
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+            display: none;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .auth-btn {
+            width: 100%;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-google {
+            background-color: white;
+            color: #333;
+            border: 1px solid #ccc;
+            font-family: var(--font-sans);
+            font-weight: 500;
+        }
+
+        .btn-google:hover {
+            background-color: #f5f5f5;
+        }
+
+        .btn-google img {
+            width: 18px;
+            height: 18px;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 1.5rem 0;
+            color: var(--acc-muted);
+            font-size: 0.75rem;
+            font-family: var(--font-mono);
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--sys-border-high);
+        }
+
+        .divider:not(:empty)::before {
+            margin-right: .5em;
+        }
+
+        .divider:not(:empty)::after {
+            margin-left: .5em;
+        }
+
+        #register-view,
+        #onboarding-view,
+        #verify-code-view {
+            display: none;
+        }
+
+        /* Intl Tel Input Overrides */
+        .iti {
+            width: 100%;
+        }
+
+        .iti__country-list {
+            background-color: var(--sys-panel);
+            border: 1px solid var(--sys-border-high);
+            color: var(--acc-primary);
+            font-family: var(--font-sans);
+            font-size: 0.85rem;
+            z-index: 100;
+        }
+
+        .iti__country.iti__highlight {
+            background-color: var(--sys-border);
+        }
+
+        .iti__divider {
+            border-bottom: 1px solid var(--sys-border-high);
+        }
+
+        .iti__selected-dial-code {
+            color: var(--acc-primary);
+        }
+
+        .form-group .iti input {
+            padding-left: 85px !important;
+        }
+
+        /* Recaptcha container */
+        #recaptcha-container {
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="top-nav">
+        <div class="nav-left">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" class="logo-svg">
+                    <rect x="2" y="2" width="20" height="20" rx="4" stroke="currentColor" stroke-width="2" />
+                    <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
+                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" />
+                </svg>
+                <h1>DRIVERWATCH <span class="version">v3.0.0</span></h1>
+            </div>
+            <div class="system-tag">SYSTEM: <span class="status-indicator">SECURE AUTH</span></div>
+        </div>
+    </header>
+
+    <main class="auth-container">
+        <div class="auth-panel">
+            <div class="auth-header">
+                <h2>OPERATOR AUTHENTICATION</h2>
+                <p>Secure Enterprise Portal</p>
+            </div>
+
+            <div class="auth-toggle">
+                <div class="toggle-btn active" id="btn-login" onclick="toggleView('login')">EMAIL / GOOGLE</div>
+                <div class="toggle-btn" id="btn-register" onclick="toggleView('register')">PHONE VERIFY / SETTINGS</div>
+            </div>
+
+            <!-- LOGIN & GOOGLE VIEW -->
+            <div id="login-view">
+                <button type="button" id="google-signin-btn" class="btn-primary auth-btn btn-google">
+                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google">
+                    SIGN IN WITH GOOGLE
+                </button>
+
+                <div class="divider">OR USE STANDARD EMAIL</div>
+
+                <form id="email-signin-form">
+                    <div class="form-group">
+                        <label>EMAIL ADDRESS</label>
+                        <input type="email" id="loginEmail" placeholder="driver@company.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label>PASSWORD</label>
+                        <input type="password" id="loginPassword" placeholder="••••••••" required>
+                        <button type="button" class="password-toggle"
+                            onclick="togglePasswordVisibility('loginPassword')">SHOW</button>
+                    </div>
+                    <div id="login-error" class="error-message"></div>
+                    <button type="submit" id="login-submit" class="btn-primary auth-btn">AUTHENTICATE EMAIL</button>
+
+                    <div style="text-align:center; margin-top: 1rem;">
+                        <span
+                            style="font-size: 0.75rem; color: var(--acc-muted); font-family: var(--font-mono); cursor: pointer; text-decoration: underline;"
+                            onclick="toggleView('register')">Need to create an Email account? Register here.</span>
+                    </div>
+                </form>
+            </div>
+
+            <!-- REGISTER/PHONE VIEW -->
+            <div id="register-view">
+                <div class="form-group" id="reg-email-group" style="display:none;">
+                    <label>EMAIL ADDRESS</label>
+                    <input type="email" id="regEmail" placeholder="driver@company.com">
+                </div>
+                <div class="form-group" id="reg-pass-group" style="display:none;">
+                    <label>PASSWORD (Min 6 chars)</label>
+                    <input type="password" id="regPassword" minlength="6" placeholder="••••••••">
+                    <button type="button" class="password-toggle"
+                        onclick="togglePasswordVisibility('regPassword')">SHOW</button>
+                </div>
+
+                <form id="phone-auth-form">
+                    <div class="form-group">
+                        <label>SECURE PHONE VERIFICATION</label>
+                        <input type="tel" id="regContactPhone" required>
+                        <div style="font-size: 0.7rem; color: var(--acc-muted); margin-top: 0.3rem;">An SMS code will be
+                            sent to verify this device.</div>
+                    </div>
+
+                    <div id="recaptcha-container"></div>
+                    <div id="phone-error" class="error-message"></div>
+
+                    <button type="submit" id="phone-submit" class="btn-primary auth-btn">SEND SMS CODE</button>
+
+                    <div style="text-align:center; margin-top: 1rem;">
+                        <span
+                            style="font-size: 0.75rem; color: var(--acc-muted); font-family: var(--font-mono); cursor: pointer; text-decoration: underline;"
+                            onclick="toggleEmailReg()">Toggle Email Registration Instead</span>
+                    </div>
+                </form>
+            </div>
+
+            <!-- VERIFY SMS CODE VIEW -->
+            <form id="verify-code-view">
+                <div class="form-group">
+                    <label>ENTER 6-DIGIT SMS CODE</label>
+                    <input type="text" id="verificationCode" placeholder="123456" pattern="\d{6}" maxlength="6" required
+                        style="text-align: center; letter-spacing: 0.5rem; font-size: 1.5rem;">
+                </div>
+                <div id="verify-error" class="error-message"></div>
+                <button type="submit" id="verify-submit" class="btn-primary auth-btn">VERIFY DEVICE</button>
+                <div style="text-align:center; margin-top: 1rem;">
+                    <span
+                        style="font-size: 0.75rem; color: var(--acc-muted); font-family: var(--font-mono); cursor: pointer; text-decoration: underline;"
+                        onclick="toggleView('register'); resetRecaptcha();">Go back</span>
+                </div>
+            </form>
+
+            <!-- ONBOARDING (IF NEW USER) -->
+            <form id="onboarding-view">
+                <div class="auth-header" style="margin-bottom: 1rem;">
+                    <h2 style="font-size: 1rem;">COMPLETE ENTERPRISE PROFILE</h2>
+                    <p style="font-size: 0.75rem;">Your account was successfully linked. We need your emergency contact
+                        to proceed.</p>
+                </div>
+                <div class="form-group">
+                    <label>DRIVER FULL NAME</label>
+                    <input type="text" id="onbDriverName" placeholder="e.g. Jane Doe" required>
+                </div>
+                <div class="form-group">
+                    <label>EMERGENCY CONTACT NAME</label>
+                    <input type="text" id="onbContactName" placeholder="e.g. John Manager" required>
+                </div>
+                <div class="form-group">
+                    <label>EMERGENCY CONTACT PHONE</label>
+                    <input type="tel" id="onbContactPhone" required>
+                </div>
+                <div class="location-permission">
+                    <input type="checkbox" id="onbLocationConsent" required>
+                    <label>I authorize DriverWatch to access my device's active location for emergency dispatch. This is
+                        locally required for provisioning.</label>
+                </div>
+                <div id="onb-error" class="error-message"></div>
+                <button type="submit" id="onb-submit" class="btn-primary auth-btn">FINALIZE PROVISIONING</button>
+            </form>
+
+
+        </div>
+    </main>
+
+    <script src="login.js"></script>
+</body>
+
+</html>

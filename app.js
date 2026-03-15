@@ -25,6 +25,11 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let isRecording = false;
 
+// User Data & Location State
+let currentUserData = null;
+let currentGeoPosition = null;
+let geoWatchId = null;
+
 // IndexedDB Constants
 const DB_NAME = 'DriverWatchDB';
 const DB_VERSION = 1;
@@ -240,6 +245,33 @@ const statAlerts = document.getElementById('stat-alerts');
 const statDrowsy = document.getElementById('stat-drowsy');
 const statScore = document.getElementById('stat-score');
 
+// Load User Data via Firebase Auth State
+auth.onAuthStateChanged(async (user) => {
+    if (!user) {
+        window.location.href = 'login.html';
+    } else {
+        try {
+            const doc = await db.collection('users').doc(user.uid).get();
+            if (doc.exists) {
+                currentUserData = doc.data();
+                const navOp = document.getElementById('nav-operator-name');
+                if (navOp) navOp.innerText = currentUserData.driverName.toUpperCase();
+
+                const dispName = document.getElementById('dispatch-contact-name');
+                const dispPhone = document.getElementById('dispatch-contact-phone');
+                if (dispName) dispName.innerText = currentUserData.emergencyContact.name.toUpperCase();
+                if (dispPhone) dispPhone.innerText = currentUserData.emergencyContact.phone;
+            }
+        } catch (e) {
+            console.error("Error loading user data from Firestore:", e);
+        }
+    }
+});
+
+function logout() {
+    auth.signOut();
+}
+
 // Init Clock
 setInterval(() => {
     navClock.innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -358,6 +390,7 @@ async function init() {
         startRecording();
         loadMediaVault();
         keepVoiceEngineWarm();
+        startLocationTracking();
 
     } catch (error) {
         if (startupMessage) {
@@ -534,9 +567,9 @@ function startSimulatedCall() {
     emergencyTimer = setTimeout(() => {
         try {
             // ringingSound.pause(); // Don't pause audio context before speech
-            if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING FEED...";
+            if (emergencyStatusText) emergencyStatusText.innerText = "CONNECTION ESTABLISHED. TRANSMITTING FEED & GPS...";
             if (transferProgress) transferProgress.style.width = "100%";
-            logEvent('Live connection established. Transmitting GPS and Feed.', 't-warn');
+            logEvent('Live connection established. Transmitting GPS to Dispatch and Emergency Contact.', 't-warn');
 
             // Force-Resume Loop (Extreme Measure)
             const speechPulse = setInterval(() => {
@@ -549,6 +582,36 @@ function startSimulatedCall() {
             playDispatcherVoice();
         }
     }, 3000);
+}
+
+function startLocationTracking() {
+    if (!navigator.geolocation) return;
+
+    geoWatchId = navigator.geolocation.watchPosition(
+        (position) => {
+            currentGeoPosition = {
+                lat: position.coords.latitude.toFixed(6),
+                lng: position.coords.longitude.toFixed(6),
+                acc: position.coords.accuracy.toFixed(1)
+            };
+            const locEl = document.getElementById('dispatch-location');
+            if (locEl) {
+                locEl.innerText = `${currentGeoPosition.lat}, ${currentGeoPosition.lng} (±${currentGeoPosition.acc}m)`;
+            }
+        },
+        (err) => {
+            console.warn("GPS Tracking Error:", err);
+            logEvent('GPS signal degraded. Retrying...', 't-warn');
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+    );
+}
+
+function stopLocationTracking() {
+    if (geoWatchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
+    }
 }
 
 function getBestVoice() {
@@ -572,7 +635,21 @@ function playDispatcherVoice() {
         // CRITICAL: No cancel() - it can block the engine on some Windows builds
         synth.resume();
 
-        const msg = "Emergency alert from Driver Watch. Driver unresponsive. GPS location transmitting to dispatch. Attempting to establish two way communication. Driver, please pull over immediately.";
+        let driverContext = "Driver";
+        let contactContext = "their emergency contact";
+        let locationContext = "transmitting location";
+
+        if (currentUserData) {
+            driverContext = currentUserData.driverName;
+            contactContext = `${currentUserData.emergencyContact.name}`;
+        }
+
+        if (currentGeoPosition) {
+            locationContext = `GPS coordinates are latitude ${currentGeoPosition.lat}, longitude ${currentGeoPosition.lng}`;
+        }
+
+        const msg = `Critical alert from Driver Watch. ${driverContext} is unresponsive. ${locationContext}. Dispatching local emergency services and contacting ${contactContext} immediately. Operator, please pull over.`;
+
         dispatchUtterance = new SpeechSynthesisUtterance(msg);
         dispatchUtterance.rate = 1.0;
         dispatchUtterance.pitch = 1.0;
@@ -588,7 +665,7 @@ function playDispatcherVoice() {
         }
 
         dispatchUtterance.onstart = () => {
-            logEvent('VOICE: BOT TRANSMISSION ACTIVE.', 't-succ');
+            logEvent('VOICE: DUAL DISPATCH TRANSMISSION ACTIVE.', 't-succ');
             // Stop the ringing after speech starts to be safe
             ringingSound.pause();
             ringingSound.currentTime = 0;
