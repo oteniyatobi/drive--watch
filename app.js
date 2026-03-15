@@ -248,12 +248,15 @@ const statScore = document.getElementById('stat-score');
 // Load User Data via Firebase Auth State
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
-        window.location.href = 'login.html';
+        console.log("No authenticated user found. Redirecting to login...");
+        window.location.replace('login.html');
     } else {
         try {
+            console.log("Authenticated user found:", user.uid);
             const doc = await db.collection('users').doc(user.uid).get();
             if (doc.exists) {
                 currentUserData = doc.data();
+                console.log("User data loaded successfully.");
                 const navOp = document.getElementById('nav-operator-name');
                 if (navOp) navOp.innerText = currentUserData.driverName.toUpperCase();
 
@@ -261,6 +264,9 @@ auth.onAuthStateChanged(async (user) => {
                 const dispPhone = document.getElementById('dispatch-contact-phone');
                 if (dispName) dispName.innerText = currentUserData.emergencyContact.name.toUpperCase();
                 if (dispPhone) dispPhone.innerText = currentUserData.emergencyContact.phone;
+            } else {
+                console.warn("User authenticated but profile document missing. Forcing onboarding...");
+                window.location.replace('login.html');
             }
         } catch (e) {
             console.error("Error loading user data from Firestore:", e);
