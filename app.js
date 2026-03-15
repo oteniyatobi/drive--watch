@@ -633,7 +633,10 @@ async function startRealDispatch() {
             if (response.ok && result.success) {
                 logEvent(`WHATSAPP: ✅ Emergency alert delivered to ${contactName}.`, 't-succ');
             } else {
-                logEvent(`WHATSAPP: ⚠️ Alert failed — ${result.error || 'Unknown error'}`, 't-warn');
+                // Specific error from Twilio or our API route
+                const errorMsg = result.error || 'Server error';
+                logEvent(`WHATSAPP: ⚠️ Alert failed — ${errorMsg}`, 't-warn');
+                console.error('Twilio Alert Failure:', result);
             }
         } catch (err) {
             logEvent(`WHATSAPP: ⚠️ Network error sending alert — ${err.message}`, 't-warn');
