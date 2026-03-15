@@ -25,8 +25,13 @@ module.exports = async (req, res) => {
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const from = process.env.TWILIO_WHATSAPP_FROM;
 
-    if (!accountSid || !authToken || !from) {
-        return res.status(500).json({ error: 'Twilio environment variables not configured.' });
+    const missing = [];
+    if (!accountSid) missing.push('TWILIO_ACCOUNT_SID');
+    if (!authToken) missing.push('TWILIO_AUTH_TOKEN');
+    if (!from) missing.push('TWILIO_WHATSAPP_FROM');
+
+    if (missing.length > 0) {
+        return res.status(500).json({ error: `Missing Vercel Environment Variables: ${missing.join(', ')}` });
     }
 
     // Strip non-digits from phone number, add whatsapp: prefix
