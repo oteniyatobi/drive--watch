@@ -564,100 +564,122 @@ function triggerEmergency() {
 }
 
 async function startRealDispatch() {
-    if (emergencyStatusText) emergencyStatusText.innerText = 'ACQUIRING GPS AND SCANNING FOR SERVICES...';
-    if (transferProgress) transferProgress.style.width = '20%';
-    logEvent('DISPATCH: Acquiring live GPS and scanning for nearby emergency services...', 't-info');
-
-    // Build location data
-    const lat = currentGeoPosition ? currentGeoPosition.lat : null;
-    const lng = currentGeoPosition ? currentGeoPosition.lng : null;
-    const mapsLink = lat && lng
-        ? `https://maps.google.com/?q=${lat},${lng}`
-        : 'Location unavailable';
-
-    const driverName = currentUserData ? currentUserData.driverName : 'The Driver';
-    const contactName = currentUserData ? currentUserData.emergencyContact.name : 'Emergency Contact';
-    const contactPhone = currentUserData ? currentUserData.emergencyContact.phone : null;
-
-    // Update the overlay contact info
-    const dispName = document.getElementById('dispatch-contact-name');
-    const dispPhone = document.getElementById('dispatch-contact-phone');
-    if (dispName) dispName.innerText = contactName.toUpperCase();
-    if (dispPhone) dispPhone.innerText = contactPhone || '---';
-
-    if (transferProgress) transferProgress.style.width = '40%';
-
-    // Scan for nearby emergency services via OpenStreetMap Overpass API
-    let nearbyServicesHTML = '';
-    if (lat && lng) {
-        try {
-            nearbyServicesHTML = await scanNearbyEmergencyServices(lat, lng);
-            logEvent('GPS SCAN: Nearby emergency services identified.', 't-succ');
-        } catch (e) {
-            nearbyServicesHTML = '<div style="color:var(--acc-muted)">Could not scan nearby services.</div>';
-            logEvent('GPS SCAN: Could not retrieve nearby services.', 't-warn');
-        }
-    }
-
-    // Inject results into the overlay
-    let nearbyDiv = document.getElementById('nearby-services-panel');
-    if (!nearbyDiv) {
-        nearbyDiv = document.createElement('div');
-        nearbyDiv.id = 'nearby-services-panel';
-        nearbyDiv.style = 'margin-top: 0.75rem; font-family: var(--font-mono); font-size: 0.72rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border: 1px solid var(--sys-border-high);';
-        const callMetrics = document.querySelector('.call-metrics');
-        if (callMetrics) callMetrics.before(nearbyDiv);
-    }
-    nearbyDiv.innerHTML = `<div style="color: var(--stat-warn); margin-bottom: 0.25rem;">NEARBY EMERGENCY SERVICES (GPS SCAN):</div>${nearbyServicesHTML}`;
-
-    if (transferProgress) transferProgress.style.width = '70%';
-    if (emergencyStatusText) emergencyStatusText.innerText = 'SENDING WHATSAPP ALERT TO EMERGENCY CONTACT...';
-
-    // Send real WhatsApp alert after short delay
-    await new Promise(r => setTimeout(r, 1500));
-
-    if (contactPhone) {
-        try {
-            logEvent(`WHATSAPP: Sending automated alert to ${contactName}...`, 't-info');
-            const response = await fetch('/api/send-alert', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    to: contactPhone,
-                    driverName: driverName,
-                    mapsLink: mapsLink,
-                    time: new Date().toLocaleTimeString()
-                })
-            });
-            const result = await response.json();
-            if (response.ok && result.success) {
-                logEvent(`WHATSAPP: ✅ Emergency alert delivered to ${contactName}.`, 't-succ');
-            } else {
-                // Specific error from Twilio or our API route
-                const errorMsg = result.error || 'Server error';
-                logEvent(`WHATSAPP: ⚠️ Alert failed — ${errorMsg}`, 't-warn');
-                console.error('Twilio Alert Failure:', result);
-            }
-        } catch (err) {
-            logEvent(`WHATSAPP: ⚠️ Network error sending alert — ${err.message}`, 't-warn');
-        }
-    } else {
-        logEvent('WHATSAPP: No emergency contact phone on file.', 't-warn');
-    }
-
-    if (transferProgress) transferProgress.style.width = '100%';
-    if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH COMPLETE. EMERGENCY CONTACT ALERTED.';
-
-    // Also trigger speech
     try {
-        const speechPulse = setInterval(() => {
-            if (synth) synth.resume();
-            if (!isEmergencyActive) clearInterval(speechPulse);
-        }, 500);
-        playDispatcherVoice();
-    } catch (e) {
-        playDispatcherVoice();
+        if (emergencyStatusText) emergencyStatusText.innerText = 'ACQUIRING GPS AND SCANNING FOR SERVICES...';
+        if (transferProgress) transferProgress.style.width = '20%';
+        logEvent('DISPATCH: Acquiring live GPS and scanning for nearby emergency services...', 't-info');
+
+        // Build location data
+        const lat = currentGeoPosition ? currentGeoPosition.lat : null;
+        const lng = currentGeoPosition ? currentGeoPosition.lng : null;
+        const mapsLink = lat && lng
+            ? `https://maps.google.com/?q=${lat},${lng}`
+            : 'Location unavailable';
+
+        // Safety checks for User Data
+        const driverName = currentUserData?.driverName || 'The Driver';
+        const contactName = currentUserData?.emergencyContact?.name || 'Emergency Contact';
+        const contactPhone = currentUserData?.emergencyContact?.phone || null;
+
+        // Update the overlay contact info
+        const dispName = document.getElementById('dispatch-contact-name');
+        const dispPhone = document.getElementById('dispatch-contact-phone');
+        if (dispName) dispName.innerText = contactName.toUpperCase();
+        if (dispPhone) dispPhone.innerText = contactPhone || '---';
+
+        if (transferProgress) transferProgress.style.width = '40%';
+
+        // Scan for nearby emergency services via OpenStreetMap Overpass API
+        let nearbyServicesHTML = '';
+        if (lat && lng) {
+            try {
+                nearbyServicesHTML = await scanNearbyEmergencyServices(lat, lng);
+                logEvent('GPS SCAN: Nearby emergency services identified.', 't-succ');
+            } catch (e) {
+                nearbyServicesHTML = '<div style="color:var(--acc-muted)">Could not scan nearby services.</div>';
+                logEvent('GPS SCAN: Could not retrieve nearby services.', 't-warn');
+            }
+        }
+
+        // Inject results into the overlay
+        let nearbyDiv = document.getElementById('nearby-services-panel');
+        if (!nearbyDiv) {
+            nearbyDiv = document.createElement('div');
+            nearbyDiv.id = 'nearby-services-panel';
+            nearbyDiv.style = 'margin-top: 0.75rem; font-family: var(--font-mono); font-size: 0.72rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border: 1px solid var(--sys-border-high);';
+            const callMetrics = document.querySelector('.call-metrics');
+            if (callMetrics) callMetrics.before(nearbyDiv);
+        }
+        nearbyDiv.innerHTML = `<div style="color: var(--stat-warn); margin-bottom: 0.25rem;">NEARBY EMERGENCY SERVICES (GPS SCAN):</div>${nearbyServicesHTML}`;
+
+        if (transferProgress) transferProgress.style.width = '70%';
+        if (emergencyStatusText) emergencyStatusText.innerText = 'SENDING WHATSAPP ALERT TO EMERGENCY CONTACT...';
+
+        // Send real WhatsApp alert after short delay
+        await new Promise(r => setTimeout(r, 1500));
+
+        if (contactPhone) {
+            try {
+                logEvent(`WHATSAPP: Sending automated alert to ${contactName}...`, 't-info');
+                const response = await fetch('/api/send-alert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        to: contactPhone,
+                        driverName: driverName,
+                        mapsLink: mapsLink,
+                        time: new Date().toLocaleTimeString()
+                    })
+                });
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    logEvent(`WHATSAPP: ✅ Emergency alert delivered to ${contactName}.`, 't-succ');
+                } else {
+                    // Specific error from Twilio or our API route
+                    const errorMsg = result.error || 'Server error';
+                    logEvent(`WHATSAPP: ⚠️ Alert failed — ${errorMsg}`, 't-warn');
+                    console.error('Twilio Alert Failure:', result);
+                }
+            } catch (err) {
+                logEvent(`WHATSAPP: ⚠️ Network error sending alert — ${err.message}`, 't-warn');
+            }
+        } else {
+            logEvent('WHATSAPP: No emergency contact phone on file.', 't-warn');
+        }
+
+        if (transferProgress) transferProgress.style.width = '100%';
+        if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH COMPLETE. EMERGENCY CONTACT ALERTED.';
+
+        // Also trigger speech
+        try {
+            const speechPulse = setInterval(() => {
+                if (synth) synth.resume();
+                if (!isEmergencyActive) clearInterval(speechPulse);
+            }, 500);
+            playDispatcherVoice();
+        } catch (e) {
+            playDispatcherVoice();
+        }
+    } catch (criticalErr) {
+        console.error("Critical Dispatch Failure:", criticalErr);
+        logEvent(`CRITICAL: Dispatch engine error — ${criticalErr.message}`, 't-crit');
+        if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH SYSTEM FAILURE. MANUAL ACTION REQUIRED.';
     }
+}
+
+if (transferProgress) transferProgress.style.width = '100%';
+if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH COMPLETE. EMERGENCY CONTACT ALERTED.';
+
+// Also trigger speech
+try {
+    const speechPulse = setInterval(() => {
+        if (synth) synth.resume();
+        if (!isEmergencyActive) clearInterval(speechPulse);
+    }, 500);
+    playDispatcherVoice();
+} catch (e) {
+    playDispatcherVoice();
+}
 }
 
 async function scanNearbyEmergencyServices(lat, lng) {
