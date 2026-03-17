@@ -667,21 +667,6 @@ async function startRealDispatch() {
     }
 }
 
-if (transferProgress) transferProgress.style.width = '100%';
-if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH COMPLETE. EMERGENCY CONTACT ALERTED.';
-
-// Also trigger speech
-try {
-    const speechPulse = setInterval(() => {
-        if (synth) synth.resume();
-        if (!isEmergencyActive) clearInterval(speechPulse);
-    }, 500);
-    playDispatcherVoice();
-} catch (e) {
-    playDispatcherVoice();
-}
-}
-
 async function scanNearbyEmergencyServices(lat, lng) {
     const radius = 5000; // 5km radius
     const query = `
