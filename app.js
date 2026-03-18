@@ -201,7 +201,8 @@ function getSmoothedPredictions(rawPrediction) {
 // SYSTEM THRESHOLDS 
 // ==========================================
 const ASLEEP_THRESHOLD = 0.70;
-const SECONDS_TO_TRIGGER_ALARM = 4;
+const SECONDS_TO_TRIGGER_WARNING = 4;
+const SECONDS_TO_TRIGGER_ALARM = 8;
 const EMERGENCY_CALL_DELAY = 10;
 
 // ==========================================
@@ -483,11 +484,18 @@ function handleDrowsinessLogic(isAsleep) {
             hasLoggedDrowsyWarningThisSession = true;
         }
 
-        if (sec < SECONDS_TO_TRIGGER_ALARM) {
+        if (sec < SECONDS_TO_TRIGGER_WARNING) {
+            // STAGE 1: Silent Buffer (Visual only)
+            const remaining = Math.max(0, SECONDS_TO_TRIGGER_WARNING - sec).toFixed(1);
+            setStatus('sleepy', 'DROWSY WARNING', `Fatigue detected. Maintain alertness. Audible warning in ${remaining}s`);
+            stopHDWarningBeep();
+        } else if (sec < SECONDS_TO_TRIGGER_ALARM) {
+            // STAGE 2: Audible Beeps
             const timeRemaining = Math.max(0, SECONDS_TO_TRIGGER_ALARM - sec).toFixed(1);
-            setStatus('sleepy', 'DROWSY WARNING', `Driver unresponsive. Cabin alarm in ${timeRemaining}s`);
+            setStatus('sleepy', 'CRITICAL WARNING', `Driver unresponsive. Cabin siren in ${timeRemaining}s`);
             startHDWarningBeep();
         } else {
+            // STAGE 3: Full Alarm Siren
             stopHDWarningBeep();
             triggerAlarm();
         }
