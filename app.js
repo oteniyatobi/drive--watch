@@ -454,7 +454,24 @@ async function predict() {
 }
 
 function handleDrowsinessLogic(isAsleep) {
-    if (!alarmOverlay.classList.contains('hidden') || !emergencyOverlay.classList.contains('hidden')) return;
+    // 1. Safety Guard: If full emergency dispatch is active, manual action is required
+    if (isEmergencyActive) return;
+
+    // 2. AUTO-DISMISS LOGIC
+    if (isAlarmActive) {
+        if (!isAsleep) {
+            logEvent('AUTO-OVERRIDE: Driver alertness detected. Terminating alarm.', 't-succ');
+            dismissAlarm(true);
+        } else {
+            // Optional: Log once every 5 seconds while alarm is active to show we are still checking
+            if (Math.floor(Date.now() / 1000) % 5 === 0 && !window._lastAlarmLog) {
+                console.log("ALARM ACTIVE: System still detecting fatigue threshold.");
+                window._lastAlarmLog = true;
+                setTimeout(() => window._lastAlarmLog = false, 1000);
+            }
+        }
+        return;
+    }
 
     if (isAsleep) {
         if (!currentSleepSessionStart) currentSleepSessionStart = Date.now();
@@ -529,8 +546,12 @@ function triggerAlarm() {
     }, 1000);
 }
 
-function dismissAlarm() {
-    logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
+function dismissAlarm(isAuto = false) {
+    if (isAuto) {
+        // Log is handled by the caller for precision
+    } else {
+        logEvent('OVERRIDE: Driver successfully acknowledged alarm.', 't-succ');
+    }
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     stopHDAudioAlarm();
 

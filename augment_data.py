@@ -60,22 +60,46 @@ def augment_images(input_folder, output_folder):
                 
                 # 2. Brightness Increase
                 enhancer = ImageEnhance.Brightness(img)
-                brighter = enhancer.enhance(1.4) # 40% brighter
+                brighter = enhancer.enhance(1.4) 
                 brighter.save(os.path.join(output_folder, f"{name}_bright{ext}"))
                 generated_count += 1
                 
                 # 3. Brightness Decrease
-                darker = enhancer.enhance(0.5) # 50% darker
+                darker = enhancer.enhance(0.6) 
                 darker.save(os.path.join(output_folder, f"{name}_dark{ext}"))
                 generated_count += 1
                 
                 # 4. Rotation (tilt)
-                rotated1 = img.rotate(15, expand=False, fillcolor="black")
-                rotated1.save(os.path.join(output_folder, f"{name}_rot15{ext}"))
+                rotated1 = img.rotate(10, expand=False, fillcolor="black")
+                rotated1.save(os.path.join(output_folder, f"{name}_rot10{ext}"))
                 generated_count += 1
                 
-                rotated2 = img.rotate(-15, expand=False, fillcolor="black")
-                rotated2.save(os.path.join(output_folder, f"{name}_rot-15{ext}"))
+                # 5. Grayscale (Focus on features/eyes)
+                gray = ImageOps.grayscale(img)
+                gray.save(os.path.join(output_folder, f"{name}_gray{ext}"))
+                generated_count += 1
+
+                # 6. High Contrast (Simulate direct sun)
+                con_enhancer = ImageEnhance.Contrast(img)
+                high_con = con_enhancer.enhance(1.8)
+                high_con.save(os.path.join(output_folder, f"{name}_contrast{ext}"))
+                generated_count += 1
+
+                # 7. Add Noise (Simulate low-light grain)
+                # We'll do a simple pixel-level noise
+                import random
+                pixels = img.load()
+                for i in range(img.size[0]):
+                    for j in range(img.size[1]):
+                        if random.random() < 0.05: # 5% noise
+                            noise = random.randint(-30, 30)
+                            r, g, b = pixels[i, j]
+                            pixels[i, j] = (
+                                max(0, min(255, r + noise)),
+                                max(0, min(255, g + noise)),
+                                max(0, min(255, b + noise))
+                            )
+                img.save(os.path.join(output_folder, f"{name}_noisy{ext}"))
                 generated_count += 1
                 
         except Exception as e:

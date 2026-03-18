@@ -23,6 +23,8 @@ Originally envisioned as a hardware-software hybrid, this version delivers a sop
 - **Smart Alert Logic**: A 4-second "Drowsy Warning" phase with audible beeps before triggering the full alarm.
 - **High-Intensity Siren**: A continuous, high-decibel "Henry Danger" style emergency siren (European variant) to ensure immediate driver arousal.
 - **Emergency Dispatch Protocol**: Simulated 911/Dispatch sequence with automated TTS (Text-to-Speech) if the driver remains unresponsive.
+- **WhatsApp Emergency Alerts**: Real-time automated WhatsApp message sent to the emergency contact via Twilio API.
+- **GPS-Aware Dispatch**: Automatically scans for nearby emergency services and transmits live location data.
 
 ### 📹 Dashcam & Evidence
 - **Continuous Session Recording**: Automatically records the entire driving session in high-quality `.webm` format using the MediaRecorder API.
@@ -79,7 +81,8 @@ MANUALLY
 - [ ] **Hardware Integration**: Direct API interaction with specialized IR dashcam hardware.
 - [ ] **Cloud Sync**: Automatic incident uploading to a centralized fleet management portal.
 - [ ] **Multi-Class Detection**: Adding distracted driving detection (phone usage, smoking).
-- [ ] **Geo-Tagging**: Real GPS integration via mobile browser API.
+- [x] **Geo-Tagging**: Real GPS integration via mobile browser API (Completed).
+- [x] **WhatsApp Integration**: Twilio-powered emergency alerts (Completed).
 
 ---
 
