@@ -30,6 +30,14 @@ let currentUserData = null;
 let currentGeoPosition = null;
 let geoWatchId = null;
 
+// Speed & Fleet State
+let currentSpeed = 0; // in km/h or mph
+let currentSpeedLimit = null;
+let lastSpeedLimitCheck = 0;
+let isSpeedingAlertActive = false;
+let lastImpactTime = 0;
+const IMPACT_G_THRESHOLD = 4.5; // G-force threshold for a "crash"
+
 // IndexedDB Constants
 const DB_NAME = 'DriverWatchDB';
 const DB_VERSION = 1;
@@ -169,6 +177,21 @@ function stopHDWarningBeep() {
     isWarningPlaying = false;
 }
 
+function startHDSpeedingBeep() {
+    // Shorter, sharper beep for speeding
+    initAudioContext();
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+    g.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    osc.connect(g);
+    g.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+}
+
 // ==========================================
 // SUBSYSTEM: PREDICTION STABILIZATION
 // ==========================================
@@ -244,6 +267,8 @@ const transferProgress = document.getElementById('transfer-progress');
 const statUptime = document.getElementById('stat-uptime');
 const statAlerts = document.getElementById('stat-alerts');
 const statDrowsy = document.getElementById('stat-drowsy');
+const statSpeed = document.getElementById('stat-speed');
+const statLimit = document.getElementById('stat-limit');
 const statScore = document.getElementById('stat-score');
 
 // Load User Data via Firebase Auth State
@@ -398,6 +423,7 @@ async function init() {
         loadMediaVault();
         keepVoiceEngineWarm();
         startLocationTracking();
+        startImpactDetection();
 
     } catch (error) {
         if (startupMessage) {
@@ -740,12 +766,22 @@ function startLocationTracking() {
     if (!navigator.geolocation) return;
 
     geoWatchId = navigator.geolocation.watchPosition(
-        (position) => {
+        async (position) => {
             currentGeoPosition = {
                 lat: position.coords.latitude.toFixed(6),
                 lng: position.coords.longitude.toFixed(6),
                 acc: position.coords.accuracy.toFixed(1)
             };
+
+            // Handle Speed (m/s to km/h)
+            if (position.coords.speed !== null) {
+                currentSpeed = Math.round(position.coords.speed * 3.6);
+                if (statSpeed) statSpeed.innerText = `${currentSpeed} km/h`;
+
+                // Real-time Speed Limit Logic
+                checkSpeedLimit(currentGeoPosition.lat, currentGeoPosition.lng);
+            }
+
             const locEl = document.getElementById('dispatch-location');
             if (locEl) {
                 locEl.innerText = `${currentGeoPosition.lat}, ${currentGeoPosition.lng} (±${currentGeoPosition.acc}m)`;
@@ -759,10 +795,103 @@ function startLocationTracking() {
     );
 }
 
+async function checkSpeedLimit(lat, lon) {
+    const now = Date.now();
+    // Only check every 15 seconds to avoid API throttling
+    if (now - lastSpeedLimitCheck < 15000) return;
+    lastSpeedLimitCheck = now;
+
+    try {
+        const radius = 50; // 50m search radius
+        const query = `[out:json];way(around:${radius},${lat},${lon})[maxspeed];out tags;`;
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            body: query
+        });
+        const data = await response.json();
+
+        if (data.elements && data.elements.length > 0) {
+            // Get the first found maxspeed
+            const limitStr = data.elements[0].tags.maxspeed;
+            currentSpeedLimit = parseInt(limitStr);
+
+            if (statLimit) {
+                statLimit.innerText = `${currentSpeedLimit} km/h`;
+                statLimit.classList.remove('unknown');
+            }
+
+            // Check for speeding
+            evaluateSpeeding();
+        } else {
+            console.log("No speed limit found in OSM for this location.");
+            if (statLimit) statLimit.innerText = `---`;
+        }
+    } catch (e) {
+        console.warn("Speed limit lookup failed:", e);
+    }
+}
+
+function evaluateSpeeding() {
+    if (!currentSpeedLimit) return;
+
+    // Buffer of 5 km/h over limit
+    if (currentSpeed > currentSpeedLimit + 5) {
+        if (!isSpeedingAlertActive) {
+            logEvent(`SPEED WARNING: Exceeding ${currentSpeedLimit} km/h limit!`, 't-warn');
+            isSpeedingAlertActive = true;
+            // Immediate beep
+            startHDSpeedingBeep();
+        }
+        // Periodic warning look
+        const limitEl = document.getElementById('metric-box-limit');
+        if (limitEl) limitEl.classList.add('speeding');
+    } else {
+        isSpeedingAlertActive = false;
+        const limitEl = document.getElementById('metric-box-limit');
+        if (limitEl) limitEl.classList.remove('speeding');
+    }
+}
+
 function stopLocationTracking() {
     if (geoWatchId !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(geoWatchId);
         geoWatchId = null;
+    }
+}
+
+function startImpactDetection() {
+    if (window.DeviceMotionEvent) {
+        window.addEventListener('devicemotion', handleMotion, true);
+        logEvent('G-Force monitoring active. Impact detection armed.', 't-info');
+    } else {
+        logEvent('Impact detection unavailable (Hardware unsupported).', 't-warn');
+    }
+}
+
+function stopImpactDetection() {
+    window.removeEventListener('devicemotion', handleMotion);
+}
+
+function handleMotion(event) {
+    if (!isRunning || isEmergencyActive) return;
+
+    const acc = event.accelerationIncludingGravity;
+    if (!acc) return;
+
+    // Calculate total G-force (Resultant Vector)
+    const gSum = Math.sqrt(acc.x ** 2 + acc.y ** 2 + acc.z ** 2) / 9.81;
+
+    // Detect sudden impact
+    if (gSum > IMPACT_G_THRESHOLD) {
+        const now = Date.now();
+        // Debounce to avoid multiple triggers for the same event
+        if (now - lastImpactTime < 5000) return;
+        lastImpactTime = now;
+
+        logEvent(`CRITICAL: Impact detected! Intensity: ${gSum.toFixed(1)}G`, 't-crit');
+
+        // Immediate escalation
+        triggerEmergency();
     }
 }
 
@@ -917,107 +1046,134 @@ function initDB() {
 }
 
 function saveVideoToDB(id, blob, type) {
-    if (!localDb) return;
-    const transaction = localDb.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    store.put({ id: id, blob: blob, type: type, timestamp: new Date().toLocaleString() });
+    // 1. Save Locally (IndexedDB)
+    if (localDb) {
+        const transaction = localDb.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        store.put({ id: id, blob: blob, type: type, timestamp: new Date().toLocaleString() });
+    }
+
+    // 2. Save to Cloud (Firebase Storage + Firestore)
+    saveVideoToCloud(id, blob, type);
+
     loadMediaVault();
+}
+
+async function saveVideoToCloud(id, blob, type) {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+        logEvent(`CLOUD: Uploading ${type} to secure vault...`, 't-info');
+        const fileRef = storage.ref().child(`users/${user.uid}/videos/${id}.webm`);
+        const snapshot = await fileRef.put(blob);
+        const downloadURL = await snapshot.ref.getDownloadURL();
+
+        // Store metadata in Firestore
+        await db.collection('users').doc(user.uid).collection('recordings').doc(id).set({
+            id: id,
+            url: downloadURL,
+            type: type,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            readableTime: new Date().toLocaleString()
+        });
+
+        logEvent(`CLOUD: ✅ ${type} successfully synchronized.`, 't-succ');
+        loadMediaVault(); // Refresh to show cloud icon
+    } catch (e) {
+        console.error("Cloud Upload Failed:", e);
+        logEvent(`CLOUD: ⚠️ Sync failed — ${e.message}`, 't-warn');
+    }
 }
 
 async function loadMediaVault() {
     const vaultContainer = document.getElementById('vault-list');
-    if (!vaultContainer || !localDb) return;
-    vaultContainer.innerHTML = '';
-    const transaction = localDb.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    store.getAll().onsuccess = (event) => {
-        const videos = event.target.result;
-        if (videos.length === 0) {
-            vaultContainer.innerHTML = '<div class="empty-data">NO RECORDS</div>';
-            return;
-        }
-        videos.forEach(video => {
-            const item = document.createElement('div');
-            item.className = 'vault-item';
-            item.innerHTML = `
-                <div class="vault-info">
-                    <span class="vault-type">${video.type}</span>
-                    <span class="vault-time">${video.timestamp}</span>
-                </div>
-                <div class="vault-actions">
-                    <button class="btn-play" onclick="playVideo('${video.id}')">PLAY</button>
-                    <button class="btn-del" onclick="deleteVideo('${video.id}')">DEL</button>
-                </div>
-            `;
-            vaultContainer.appendChild(item);
-        });
-    };
-}
+    if (!vaultContainer) return;
+    vaultContainer.innerHTML = '<div class="empty-data">Syncing with fleet vault...</div>';
 
-function playVideo(id) {
-    if (!localDb) {
-        logEvent('Database not initialized. Cannot play video.', 't-warn');
+    const user = auth.currentUser;
+    let allVideos = [];
+
+    // 1. Fetch Local Videos (IndexedDB)
+    if (localDb) {
+        const localVideos = await new Promise((resolve) => {
+            const transaction = localDb.transaction([STORE_NAME], 'readonly');
+            transaction.objectStore(STORE_NAME).getAll().onsuccess = (e) => resolve(e.target.result);
+        });
+        allVideos = [...localVideos.map(v => ({ ...v, isLocal: true }))];
+    }
+
+    // 2. Fetch Cloud Videos (Firestore)
+    if (user) {
+        try {
+            const snapshot = await db.collection('users').doc(user.uid).collection('recordings').orderBy('timestamp', 'desc').get();
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // Avoid duplicates if already in local
+                if (!allVideos.find(v => v.id === data.id)) {
+                    allVideos.push({ ...data, isLocal: false, timestamp: data.readableTime });
+                }
+            });
+        } catch (e) {
+            console.warn("Could not fetch cloud vault:", e);
+        }
+    }
+
+    if (allVideos.length === 0) {
+        vaultContainer.innerHTML = '<div class="empty-data">NO RECORDS FOUND</div>';
         return;
     }
 
-    const transaction = localDb.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(id);
+    // Sort by most recent
+    allVideos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-    request.onsuccess = (event) => {
-        const video = event.target.result;
-        if (!video) {
-            logEvent('Video not found in vault.', 't-warn');
-            return;
-        }
+    vaultContainer.innerHTML = '';
+    allVideos.forEach(video => {
+        const item = document.createElement('div');
+        item.className = 'vault-item';
+        const sourceIcon = video.isLocal ? '💾' : '☁️';
+        item.innerHTML = `
+            <div class="vault-info">
+                <span class="vault-type">${sourceIcon} ${video.type}</span>
+                <span class="vault-time">${video.timestamp}</span>
+            </div>
+            <div class="vault-actions">
+                <button class="btn-play" onclick="playVideo('${video.id}', ${video.isLocal}, '${video.url || ''}')">PLAY</button>
+                <button class="btn-del" onclick="deleteVideo('${video.id}', ${video.isLocal})">DEL</button>
+            </div>
+        `;
+        vaultContainer.appendChild(item);
+    });
+}
 
-        const player = document.getElementById('vault-player');
-        const modal = document.getElementById('vault-modal');
+function playVideo(id, isLocal, cloudUrl) {
+    const player = document.getElementById('vault-player');
+    const modal = document.getElementById('vault-modal');
+    if (!player || !modal) return;
 
-        if (!player || !modal) {
-            logEvent('Video player elements not found.', 't-crit');
-            return;
-        }
-
-        // Clean up previous video URL to prevent memory leaks
-        if (player.src && player.src.startsWith('blob:')) {
-            window.URL.revokeObjectURL(player.src);
-        }
-
-        // Reset player to ensure fresh load
-        player.pause();
-        player.src = '';
-        player.load();
-
-        // Create new object URL for the video blob
-        const videoUrl = window.URL.createObjectURL(video.blob);
-        player.src = videoUrl;
-        modal.classList.remove('hidden');
-
-        // Handle video loading
-        player.oncanplay = () => {
-            player.play().catch(e => {
-                console.error("Playback failed:", e);
-                logEvent("Playback Error: " + e.message, "t-crit");
-            });
+    if (isLocal) {
+        if (!localDb) return;
+        const transaction = localDb.transaction([STORE_NAME], 'readonly');
+        transaction.objectStore(STORE_NAME).get(id).onsuccess = (event) => {
+            const video = event.target.result;
+            if (video) startPlayback(window.URL.createObjectURL(video.blob));
         };
+    } else if (cloudUrl) {
+        startPlayback(cloudUrl);
+    }
+}
 
-        player.onerror = (e) => {
-            logEvent("Playback Error: File format mismatch or corrupted video.", "t-crit");
-            console.error("Video Error:", player.error);
-            window.URL.revokeObjectURL(videoUrl);
-        };
+function startPlayback(url) {
+    const player = document.getElementById('vault-player');
+    const modal = document.getElementById('vault-modal');
 
-        // Clean up URL when video ends or modal closes
-        player.onended = () => {
-            window.URL.revokeObjectURL(videoUrl);
-        };
-    };
+    if (player.src && player.src.startsWith('blob:')) {
+        window.URL.revokeObjectURL(player.src);
+    }
 
-    request.onerror = (event) => {
-        logEvent('Failed to retrieve video from database.', 't-crit');
-        console.error('Database error:', event);
-    };
+    player.src = url;
+    modal.classList.remove('hidden');
+    player.play().catch(e => console.error("Playback failed:", e));
 }
 
 function closeVaultPlayer() {
@@ -1038,10 +1194,22 @@ function closeVaultPlayer() {
     }
 }
 
-function deleteVideo(id) {
-    if (confirm('Delete?')) {
-        const transaction = localDb.transaction([STORE_NAME], 'readwrite');
+function deleteVideo(id, isLocal) {
+    if (!confirm('Permanent delete from vault?')) return;
+
+    if (isLocal && localDb) {
         localDb.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).delete(id).onsuccess = loadMediaVault;
+    }
+
+    const user = auth.currentUser;
+    if (user) {
+        // Delete from Firestore
+        db.collection('users').doc(user.uid).collection('recordings').doc(id).delete().then(() => {
+            logEvent('CLOUD: Record removed from fleet vault.', 't-info');
+            loadMediaVault();
+        });
+        // Note: Actual storage file deletion can be handled by cloud functions or separate call, 
+        // but removing the pointer from Firestore is enough for this prototype.
     }
 }
 

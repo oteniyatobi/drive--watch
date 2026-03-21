@@ -15,7 +15,12 @@
     <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-storage-compat.js"></script>
     <script src="firebase-config.js"></script>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#09090b">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 
 <body>
@@ -124,12 +129,21 @@
                         <div class="metric-val" id="stat-uptime">00:00</div>
                     </div>
                     <div class="metric-box">
-                        <div class="metric-label">DROWSY TIME</div>
-                        <div class="metric-val" id="stat-drowsy">0s</div>
+                        <div class="metric-label">CURRENT SPEED</div>
+                        <div class="metric-val" id="stat-speed">0 km/h</div>
+                    </div>
+                    <div class="metric-box" id="metric-box-limit">
+                        <div class="metric-label">SPEED LIMIT</div>
+                        <div class="metric-val" id="stat-limit">---</div>
                     </div>
                     <div class="metric-box">
                         <div class="metric-label">SYS ALERTS</div>
-                        <div class="metric-val" id="stat-alerts">0</div>
+                        <div class="metric-val" id="stat-alerts">00</div>
+                    </div>
+                    <!-- Moved Drowsy/Score to maintain grid balance -->
+                    <div class="metric-box">
+                        <div class="metric-label">DROWSY TIME</div>
+                        <div class="metric-val" id="stat-drowsy">0s</div>
                     </div>
                     <div class="metric-box">
                         <div class="metric-label">ALERTNESS CQ</div>
@@ -251,6 +265,15 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
     <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => console.log('DriverWatch ServiceWorker Registered.'))
+                    .catch(err => console.log('ServiceWorker Registration Failed.', err));
+            });
+        }
+    </script>
 </body>
 
 </html>

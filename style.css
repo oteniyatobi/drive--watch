@@ -565,14 +565,32 @@ button:disabled {
 .metrics-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.75rem;
+    /* Tighter gap for more items */
 }
 
 .metric-box {
     background: var(--sys-bg);
     border: 1px solid var(--sys-border);
-    padding: 1rem;
+    padding: 0.75rem;
     border-radius: 2px;
+    transition: var(--transition);
+}
+
+.metric-box.speeding {
+    border-color: var(--stat-danger);
+    background: rgba(239, 68, 68, 0.1);
+    animation: speed-flash 1s infinite alternate;
+}
+
+@keyframes speed-flash {
+    from {
+        box-shadow: 0 0 2px var(--stat-danger);
+    }
+
+    to {
+        box-shadow: 0 0 10px var(--stat-danger);
+    }
 }
 
 .metric-label {
