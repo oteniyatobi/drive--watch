@@ -34,7 +34,7 @@
                     <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
                     <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" />
                 </svg>
-                <h1>DRIVERWATCH <span class="version">v3.0.0</span></h1>
+                <h1>DRIVERWATCH <span class="version">v4.1.0</span></h1>
             </div>
             <div class="system-tag" id="nav-system-tag">SYSTEM: <span class="status-indicator">STANDBY</span></div>
             <div class="system-tag" id="nav-user-tag" style="margin-left: 1rem; border-color: var(--acc-dark);">
@@ -152,26 +152,30 @@
                 </div>
             </div>
 
-            <!-- System Log -->
+            <!-- System Log (Collapsible on Mobile) -->
             <div class="data-module log-module">
-                <div class="module-header">
-                    <h3>SYSTEM EVENT LOG</h3>
-                    <button class="export-btn" id="clear-log-btn">CLEAR</button>
-                </div>
-                <div class="terminal-container" id="activity-log">
-                    <div class="terminal-line">[SYS] Waiting for monitoring to begin...</div>
-                </div>
+                <details class="mobile-collapse" open>
+                    <summary class="module-header">
+                        <h3>SYSTEM EVENT LOG</h3>
+                        <button class="export-btn" id="clear-log-btn">CLEAR</button>
+                    </summary>
+                    <div class="terminal-container" id="activity-log">
+                        <div class="terminal-line">[SYS] Waiting for monitoring to begin...</div>
+                    </div>
+                </details>
             </div>
 
-            <!-- Media Vault -->
+            <!-- Media Vault (Collapsible on Mobile) -->
             <div class="data-module vault-module">
-                <div class="module-header">
-                    <h3>MEDIA VAULT</h3>
-                    <button class="export-btn" onclick="loadMediaVault()" title="Refresh Vault">REFRESH</button>
-                </div>
-                <div class="vault-container" id="vault-list">
-                    <div class="empty-data">INITIALIZING VAULT...</div>
-                </div>
+                <details class="mobile-collapse" open>
+                    <summary class="module-header">
+                        <h3>MEDIA VAULT</h3>
+                        <button class="export-btn" onclick="loadMediaVault()" title="Refresh Vault">REFRESH</button>
+                    </summary>
+                    <div class="vault-container" id="vault-list">
+                        <div class="empty-data">INITIALIZING VAULT...</div>
+                    </div>
+                </details>
             </div>
 
         </section>

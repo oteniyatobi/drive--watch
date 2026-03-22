@@ -1015,8 +1015,8 @@ button:disabled {
 
     .dashboard-grid {
         display: flex;
-        flex-direction: column-reverse;
-        /* CAMERA AT TOP */
+        flex-direction: column;
+        /* CORRECTED: Camera will now be at the TOP */
     }
 
     .metrics-grid {
@@ -1048,20 +1048,37 @@ button:disabled {
         margin: 0 auto;
     }
 
-    .nav-header {
+    .top-nav {
         flex-direction: column;
         gap: 0.5rem;
         align-items: flex-start;
         padding: 1rem 0.5rem;
     }
 
+    .nav-right {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.5rem;
+    }
+
     .control-panel {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
         gap: 0.75rem;
-        position: sticky;
-        bottom: 0;
-        background: var(--sys-bg);
-        margin-top: 1rem;
+        padding: 1rem;
+        background: var(--sys-panel);
+        border: 1px solid var(--sys-border);
+        border-radius: var(--radius);
+        margin-bottom: 1.5rem;
+    }
+
+    .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        width: 100%;
     }
 
     .btn-main {
@@ -1070,9 +1087,36 @@ button:disabled {
     }
 
     .camera-wrapper {
-        margin-bottom: 0.5rem;
-        aspect-ratio: 4/3;
-        /* Maintain professional ratio */
+        margin-bottom: 1.5rem;
+        aspect-ratio: 16/9;
+        /* Wider for better road visibility on phones */
+        max-height: 40vh;
+        /* Don't let it devour the whole screen */
+    }
+
+    .panel-header h2 {
+        font-size: 0.8rem;
+        letter-spacing: 0.1em;
+    }
+
+    /* Collapsible Modules for Clutter Reduction */
+    .mobile-collapse summary {
+        list-style: none;
+        cursor: pointer;
+        outline: none;
+    }
+
+    .mobile-collapse summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .mobile-collapse[open] summary {
+        margin-bottom: 1rem;
+    }
+
+    .mobile-collapse:not([open]) .terminal-container,
+    .mobile-collapse:not([open]) .vault-container {
+        display: none;
     }
 }
 
