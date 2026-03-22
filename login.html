@@ -62,23 +62,31 @@
             border-radius: var(--radius);
             border: 1px solid var(--sys-border-high);
             overflow: hidden;
+            flex-wrap: wrap;
+            /* NEW: Allow wrapping on tiny screens */
         }
 
         .toggle-btn {
-            flex: 1;
-            padding: 0.75rem;
+            flex: 1 1 150px;
+            /* NEW: Smarter flex basis */
+            padding: 0.85rem 0.5rem;
             text-align: center;
             font-family: var(--font-mono);
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             cursor: pointer;
             color: var(--acc-muted);
             transition: background 0.2s;
+            border-right: 1px solid var(--sys-border-high);
+        }
+
+        .toggle-btn:last-child {
+            border-right: none;
         }
 
         .toggle-btn.active {
-            background: var(--sys-border);
+            background: var(--sys-border-high);
             color: var(--acc-primary);
-            font-weight: bold;
+            font-weight: 700;
         }
 
         .form-group {
@@ -97,14 +105,20 @@
 
         .form-group input {
             width: 100%;
-            padding: 0.75rem 1rem;
+            padding: 0.85rem 1rem;
             background: var(--sys-bg);
             border: 1px solid var(--sys-border-high);
             border-radius: var(--radius);
             color: var(--acc-primary);
             font-family: var(--font-sans);
-            font-size: 0.95rem;
+            font-size: 1rem;
+            /* Larger for better mobile tap/read */
             transition: var(--transition);
+        }
+
+        .form-group input::placeholder {
+            color: rgba(248, 250, 252, 0.4);
+            /* Higher contrast for placeholders */
         }
 
         .form-group input:focus {
@@ -172,9 +186,9 @@
         }
 
         .btn-google {
-            background-color: white;
-            color: #333;
-            border: 1px solid #ccc;
+            background-color: var(--sys-bg);
+            color: var(--acc-primary);
+            border: 1px solid var(--sys-border-high);
             font-family: var(--font-sans);
             font-weight: 500;
         }
@@ -297,7 +311,7 @@
                 <form id="email-signin-form">
                     <div class="form-group">
                         <label>EMAIL ADDRESS</label>
-                        <input type="email" id="loginEmail" placeholder="driver@company.com" required>
+                        <input type="email" id="loginEmail" placeholder="ENTER YOUR EMAIL" required>
                     </div>
                     <div class="form-group">
                         <label>PASSWORD</label>

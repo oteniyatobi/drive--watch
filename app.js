@@ -436,7 +436,7 @@ async function init() {
 }
 
 async function loop() {
-    if (!isRunning) return;
+    if (!isRunning || !isModelLoaded || isEmergencyActive) return;
     try {
         webcam.update();
         fpsMetrics.frames++;
@@ -541,6 +541,8 @@ function handleDrowsinessLogic(isAsleep) {
 }
 
 function setStatus(stateCode, title, detail) {
+    if (isEmergencyActive && stateCode !== 'sleepy') return; // Don't downgrade status if emergency active
+
     if (cameraContainer) cameraContainer.className = `camera-wrapper ${stateCode}`;
     if (headerStatusDot) headerStatusDot.className = `status-dot ${stateCode}`;
     if (mainStatusCard) mainStatusCard.className = `assessment-container ${stateCode}`;
