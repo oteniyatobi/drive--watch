@@ -83,8 +83,10 @@ body {
 .nav-left {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    gap: 1.0rem;
     min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
 }
 
 .logo {
@@ -122,31 +124,30 @@ body {
     font-family: var(--font-mono);
     font-size: 0.7rem;
     color: var(--acc-muted);
-    padding: 0.2rem 0.6rem;
+    padding: 0.3rem 0.6rem;
     border: 1px solid var(--sys-border-high);
     border-radius: 2px;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-#nav-operator-name {
     display: inline-block;
-    max-width: 140px;
+    max-width: 160px;
+    /* Force bounds on small screens */
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
-    vertical-align: bottom;
+    vertical-align: middle;
+}
+
+#nav-operator-name {
+    display: inline;
+    white-space: nowrap !important;
+    vertical-align: baseline;
 }
 
 .header-tags-container {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     min-width: 0;
-    /* Allows children to shrink and truncate */
+    flex-wrap: nowrap;
+    overflow: hidden;
 }
 
 .status-indicator {
@@ -171,6 +172,15 @@ body {
     font-size: 1rem;
     color: var(--acc-muted);
     letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 /* ==========================================
