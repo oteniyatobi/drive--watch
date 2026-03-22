@@ -67,12 +67,16 @@
         }
 
         .toggle-btn {
-            flex: 1 1 150px;
-            /* NEW: Smarter flex basis */
-            padding: 0.85rem 0.5rem;
+            flex: 1 1 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem 0.25rem;
             text-align: center;
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 0.65rem;
+            /* Slightly smaller to prevent wrap */
+            letter-spacing: 0.05em;
             cursor: pointer;
             color: var(--acc-muted);
             transition: background 0.2s;
@@ -182,7 +186,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
+            gap: 0.4rem;
+            /* Tightened from 0.5rem */
         }
 
         .btn-google {
@@ -216,7 +221,8 @@
         .divider::after {
             content: '';
             flex: 1;
-            border-bottom: 1px solid var(--sys-border-high);
+            border-bottom: 1px solid #334155;
+            /* Higher contrast gray-700 */
         }
 
         .divider:not(:empty)::before {
@@ -269,6 +275,21 @@
             display: flex;
             justify-content: center;
         }
+
+        @media (max-width: 480px) {
+            .auth-container {
+                padding: 1rem 0.5rem;
+            }
+
+            .auth-panel {
+                padding: 1.25rem;
+                border-radius: 8px;
+            }
+
+            .auth-header h2 {
+                font-size: 1.1rem;
+            }
+        }
     </style>
 </head>
 
@@ -281,9 +302,10 @@
                     <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
                     <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" />
                 </svg>
-                <h1>DRIVERWATCH <span class="version">v4.1.0</span></h1>
+                <h1>DRIVERWATCH <span class="version">v5.0.0</span></h1>
             </div>
-            <div class="system-tag">SYSTEM: <span class="status-indicator">SECURE AUTH</span></div>
+            <div class="system-tag" style="margin: 0.5rem auto 0; width: fit-content;">SYS: <span
+                    class="status-indicator" style="color:var(--stat-active)">SECURE AUTH</span></div>
         </div>
     </header>
 
