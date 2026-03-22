@@ -605,22 +605,31 @@ function dismissAlarm(isAuto = false) {
     }
 }
 
-function triggerEmergency() {
+function triggerEmergency(isImpact = false) {
     if (isEmergencyActive) return;
     isEmergencyActive = true;
 
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     if (emergencyOverlay) emergencyOverlay.classList.remove('hidden');
-    setStatus('sleepy', 'DISPATCH CALLED', 'Fleet emergency protocols in progress.');
 
-    logEvent('ESCALATION: Real emergency dispatch initiated.', 't-crit');
+    const topic = document.getElementById('emergency-topic');
+    if (isImpact) {
+        if (topic) topic.innerText = 'IMPACT DISPATCH PROTOCOL';
+        setStatus('sleepy', 'IMPACT DETECTED', 'Critical high-G event. Fleet response in progress.');
+    } else {
+        if (topic) topic.innerText = 'DISPATCH PROTOCOL INITIATED';
+        setStatus('sleepy', 'DISPATCH CALLED', 'Fleet emergency protocols in progress.');
+    }
+
+    logEvent(isImpact ? 'CRITICAL: High-G event detected. Auto-dispatch active.' : 'ESCALATION: Real emergency dispatch initiated.', 't-crit');
     stopHDAudioAlarm();
-    startRealDispatch();
+    startRealDispatch(isImpact);
 }
 
-async function startRealDispatch() {
+async function startRealDispatch(isImpact = false) {
     try {
-        if (emergencyStatusText) emergencyStatusText.innerText = 'ACQUIRING GPS AND SCANNING FOR SERVICES...';
+        const statusMsg = isImpact ? 'CRITICAL IMPACT DETECTED. AUTO-REPORTING TO FLEET COMMAND...' : 'ACQUIRING GPS AND SCANNING FOR SERVICES...';
+        if (emergencyStatusText) emergencyStatusText.innerText = statusMsg;
         if (transferProgress) transferProgress.style.width = '20%';
         logEvent('DISPATCH: Acquiring live GPS and scanning for nearby emergency services...', 't-info');
 
@@ -890,8 +899,8 @@ function handleMotion(event) {
 
         logEvent(`CRITICAL: Impact detected! Intensity: ${gSum.toFixed(1)}G`, 't-crit');
 
-        // Immediate escalation
-        triggerEmergency();
+        // Immediate escalation with impact flag
+        triggerEmergency(true);
     }
 }
 

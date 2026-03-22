@@ -964,3 +964,87 @@ button:disabled {
 .btn-abort:hover {
     background: var(--sys-border);
 }
+
+/* --- MOBILE RESPONSIVENESS --- */
+@media (max-width: 1024px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .assessment-container {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+    }
+
+    .assessment-value {
+        font-size: 1.5rem;
+    }
+}
+
+@media (max-width: 600px) {
+    body {
+        padding: 0.5rem;
+    }
+
+    .metrics-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.4rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .metric-box {
+        padding: 0.5rem;
+    }
+
+    .metric-val {
+        font-size: 1rem;
+    }
+
+    .metric-label {
+        font-size: 0.6rem;
+    }
+
+    .alert-massive {
+        font-size: 1.4rem;
+        word-break: break-word;
+        line-height: 1.2;
+    }
+
+    .modal-content {
+        padding: 1.25rem;
+        width: 95%;
+        margin: 0 auto;
+        max-width: 100%;
+    }
+
+    .nav-header {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+        padding: 1rem 0.5rem;
+    }
+
+    .control-panel {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .btn-main {
+        padding: 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .camera-wrapper {
+        margin-bottom: 0.5rem;
+    }
+}
+
+@media (max-width: 380px) {
+    .metrics-grid {
+        grid-template-columns: 1fr;
+    }
+}
