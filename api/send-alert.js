@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { to, driverName, mapsLink, time } = req.body;
+    const { to, driverName, mapsLink, time, isImpact } = req.body;
 
     if (!to) {
         return res.status(400).json({ error: 'Missing emergency contact phone number.' });
@@ -38,8 +38,16 @@ module.exports = async (req, res) => {
     const cleanPhone = to.replace(/\D/g, '');
     const toWhatsApp = `whatsapp:+${cleanPhone}`;
 
-    const messageBody =
-        `🚨 *DRIVERWATCH EMERGENCY ALERT* 🚨\n\n` +
+    const messageBody = isImpact
+        ? `🚨 *HIGH IMPACT ACCIDENT DETECTED* 🚨\n\n` +
+        `*DRIVER:* ${driverName || 'The Driver'}\n` +
+        `*STATUS:* Driver involved in a high-G collision.\n` +
+        `*TIME:* ${time || new Date().toLocaleTimeString()}\n\n` +
+        `📍 *LIVE LOCATION:*\n${mapsLink || 'Location unavailable'}\n\n` +
+        `Police and emergency contacts have been notified via voice.\n` +
+        `_This is an automated alert from DriverWatch Enterprise._`
+
+        : `🚨 *DRIVERWATCH EMERGENCY ALERT* 🚨\n\n` +
         `*DRIVER:* ${driverName || 'The Driver'}\n` +
         `*STATUS:* Driver detected as UNRESPONSIVE by AI safety system.\n` +
         `*TIME:* ${time || new Date().toLocaleTimeString()}\n\n` +
@@ -56,6 +64,35 @@ module.exports = async (req, res) => {
         });
 
         console.log(`WhatsApp alert sent. SID: ${message.sid}`);
+
+        if (isImpact) {
+            const twiml = new twilio.twiml.VoiceResponse();
+            twiml.say(
+                `Emergency alert. This is an automated message from Driver Watch. ` +
+                `${driverName || 'Your contact'} has been involved in a high impact accident at ${time || new Date().toLocaleTimeString()}. ` +
+                `Please send immediate assistance to their location. Check your WhatsApp for GPS coordinates.`
+            );
+
+            // Clean police phone, fallback to emergency contact if no police env var
+            const policeContact = process.env.TWILIO_POLICE_NUMBER || to;
+            const cleanPolicePhone = policeContact.replace(/\D/g, '');
+            const toPoliceVoice = `+${cleanPolicePhone}`;
+
+            // Clean 'from' number (assuming TWILIO_WHATSAPP_FROM is set like whatsapp:+123456789)
+            const fromVoice = process.env.TWILIO_PHONE_NUMBER || from.replace('whatsapp:', '');
+
+            try {
+                await client.calls.create({
+                    twiml: twiml.toString(),
+                    to: toPoliceVoice,
+                    from: fromVoice,
+                });
+                console.log(`Voice call dispatched to ${toPoliceVoice}`);
+            } catch (callErr) {
+                console.error('Twilio Voice Error:', callErr);
+            }
+        }
+
         return res.status(200).json({ success: true, sid: message.sid });
     } catch (err) {
         console.error('Twilio Error:', err);

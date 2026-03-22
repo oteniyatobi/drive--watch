@@ -687,15 +687,18 @@ async function startRealDispatch(isImpact = false) {
         if (contactPhone) {
             try {
                 logEvent(`WHATSAPP: Sending automated alert to ${contactName}...`, 't-info');
+                const payload = {
+                    to: contactPhone,
+                    driverName: driverName,
+                    mapsLink: mapsLink,
+                    time: new Date().toLocaleTimeString(),
+                    isImpact: isImpact // Added for accident workflow
+                };
+
                 const response = await fetch('/api/send-alert', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        to: contactPhone,
-                        driverName: driverName,
-                        mapsLink: mapsLink,
-                        time: new Date().toLocaleTimeString()
-                    })
+                    body: JSON.stringify(payload)
                 });
                 const result = await response.json();
                 if (response.ok && result.success) {
@@ -852,6 +855,8 @@ function evaluateSpeeding() {
             isSpeedingAlertActive = true;
             // Immediate beep
             startHDSpeedingBeep();
+            // Voice Alarm
+            triggerSpeedingAlarm();
         }
         // Periodic warning look
         const limitEl = document.getElementById('metric-box-limit');
@@ -863,6 +868,28 @@ function evaluateSpeeding() {
     }
 }
 
+function triggerSpeedingAlarm() {
+    try {
+        if (!synth) return;
+        synth.resume(); // Ensure engine is awake
+
+        const limitLabel = currentSpeedLimit ? `${currentSpeedLimit} kilometres per hour` : 'this area';
+        const msg = `Warning. You have exceeded the speed limit of ${limitLabel}. Please reduce your speed immediately.`;
+
+        const speedingUtterance = new SpeechSynthesisUtterance(msg);
+        speedingUtterance.rate = 1.0;
+
+        const selectedVoice = getBestVoice();
+        if (selectedVoice) {
+            speedingUtterance.voice = selectedVoice;
+        }
+
+        synth.speak(speedingUtterance);
+    } catch (e) {
+        console.error("Speeding Voice Alarm error:", e);
+    }
+}
+
 function stopLocationTracking() {
     if (geoWatchId !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(geoWatchId);
@@ -871,11 +898,30 @@ function stopLocationTracking() {
 }
 
 function startImpactDetection() {
-    if (window.DeviceMotionEvent) {
+    if (!window.DeviceMotionEvent) {
+        logEvent('Impact detection unavailable (Hardware unsupported).', 't-warn');
+        return;
+    }
+
+    // iOS 13+ requires explicit permission from the user
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') {
+                    window.addEventListener('devicemotion', handleMotion, true);
+                    logEvent('G-Force monitoring active (iOS). Impact detection armed.', 't-info');
+                } else {
+                    logEvent('WARN: iOS motion permission denied. Impact detection disabled.', 't-warn');
+                }
+            })
+            .catch(err => {
+                console.error('Motion permission error:', err);
+                logEvent('WARN: Could not request iOS motion permission.', 't-warn');
+            });
+    } else {
+        // Android, desktop, or older iOS — no permission prompt needed
         window.addEventListener('devicemotion', handleMotion, true);
         logEvent('G-Force monitoring active. Impact detection armed.', 't-info');
-    } else {
-        logEvent('Impact detection unavailable (Hardware unsupported).', 't-warn');
     }
 }
 

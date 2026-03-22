@@ -84,6 +84,7 @@ body {
     display: flex;
     align-items: center;
     gap: 1.5rem;
+    min-width: 0;
 }
 
 .logo {
@@ -127,11 +128,25 @@ body {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#nav-operator-name {
+    display: inline-block;
+    max-width: 140px;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    vertical-align: bottom;
 }
 
 .header-tags-container {
     display: flex;
     gap: 0.75rem;
+    min-width: 0;
+    /* Allows children to shrink and truncate */
 }
 
 .status-indicator {
@@ -1185,6 +1200,20 @@ button:disabled {
     .mobile-collapse:not([open]) .terminal-container,
     .mobile-collapse:not([open]) .vault-container {
         display: none;
+    }
+
+    /* Prevent modal strings colliding on narrow phones */
+    .readout-row {
+        flex-direction: column;
+        gap: 0.25rem;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+
+    .call-metrics {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
     }
 }
 
