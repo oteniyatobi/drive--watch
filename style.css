@@ -11,7 +11,8 @@
 
     /* Technical Accents */
     --acc-primary: #f8fafc;
-    --acc-muted: #94a3b8;
+    --acc-muted: #64748b;
+    /* Sharpened for better readability */
     --acc-dark: #334155;
 
     /* Status Colors (Muted, professional) */
@@ -1063,29 +1064,71 @@ button:disabled {
     }
 
     .top-nav {
-        flex-direction: column;
-        gap: 0.75rem;
-        align-items: flex-start;
-        padding: 1.25rem 0.5rem;
+        display: grid;
+        grid-template-areas:
+            "logo"
+            "tags"
+            "actions";
+        gap: 1.25rem;
+        padding: 1.5rem 0.75rem;
+        border-bottom: 2px solid var(--sys-border);
+        justify-content: center;
+        width: 100%;
+    }
+
+    .nav-left {
+        display: contents;
+    }
+
+    .logo {
+        grid-area: logo;
+        justify-content: center;
+        padding-bottom: 0.5rem;
+        width: 100%;
     }
 
     .header-tags-container {
-        flex-direction: row;
+        grid-area: tags;
+        display: flex;
+        flex-direction: column;
         width: 100%;
-        gap: 0.5rem;
+        gap: 0.75rem;
     }
 
     .system-tag {
-        font-size: 0.65rem;
-        padding: 0.15rem 0.5rem;
+        width: 100%;
+        justify-content: center;
+        padding: 0.75rem;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: var(--sys-panel);
+        border: 1px solid var(--sys-border-high);
     }
 
     .nav-right {
-        width: 100%;
+        grid-area: actions;
         display: flex;
-        justify-content: space-between;
+        flex-direction: column;
         align-items: center;
-        margin-top: 0.5rem;
+        gap: 1rem;
+        width: 100%;
+        margin-top: 0;
+    }
+
+    #nav-clock {
+        margin: 0 !important;
+        font-size: 1.25rem;
+        color: var(--acc-primary);
+        font-weight: 700;
+        font-family: var(--font-mono);
+    }
+
+    .export-btn {
+        width: 100%;
+        padding: 1rem;
+        font-size: 0.85rem;
+        text-align: center;
     }
 
     .control-panel {
