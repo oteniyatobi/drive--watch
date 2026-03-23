@@ -127,19 +127,17 @@ body {
     padding: 0.3rem 0.6rem;
     border: 1px solid var(--sys-border-high);
     border-radius: 2px;
-    display: inline-block;
-    max-width: 160px;
-    /* Force bounds on small screens */
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
 }
 
 #nav-operator-name {
-    display: inline;
+    display: block;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
     white-space: nowrap !important;
-    vertical-align: baseline;
 }
 
 .header-tags-container {
