@@ -181,6 +181,13 @@ body {
     flex-grow: 1;
 }
 
+.panel-secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-width: 0;
+}
+
 @media (max-width: 1024px) {
     .dashboard-grid {
         grid-template-columns: 1fr;
@@ -1042,7 +1049,12 @@ button:disabled {
     .dashboard-grid {
         display: flex;
         flex-direction: column;
+        gap: 1rem;
         /* CORRECTED: Camera will now be at the TOP */
+    }
+
+    .panel-secondary {
+        gap: 1rem;
     }
 
     .metrics-grid {
