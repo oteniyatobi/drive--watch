@@ -3,6 +3,9 @@
    ========================================== */
 
 :root {
+    /* Back-compat alias (some inline styles referenced --accent-green) */
+    --accent-green: #22c55e;
+
     /* Enterprise Monochrome Palette */
     --sys-bg: #09090b;
     --sys-panel: #121214;
@@ -42,10 +45,12 @@ body {
     font-family: var(--font-sans);
     line-height: 1.5;
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
-    padding: 1.5rem;
+    padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
 }
 
 .top-nav {
@@ -838,11 +843,15 @@ button:disabled {
     top: 0;
     left: 0;
     width: 100vw;
+    width: 100dvw;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 9999;
+    padding: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
+    box-sizing: border-box;
 }
 
 .overlay-modal.hidden {
@@ -871,6 +880,9 @@ button:disabled {
     z-index: 10;
     width: 100%;
     max-width: 600px;
+    max-height: min(90vh, calc(100dvh - 2rem));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     background: var(--sys-panel);
     border: 1px solid var(--sys-border-high);
     padding: 2.5rem;
@@ -1196,6 +1208,8 @@ button:disabled {
     .btn-abort {
         padding: 0.85rem;
         font-size: 0.85rem;
+        min-height: 44px;
+        touch-action: manipulation;
     }
 
     .camera-wrapper {

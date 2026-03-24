@@ -5,6 +5,7 @@
 const MODEL_URL = "./model/";
 
 let model, webcam, maxPredictions;
+let isModelLoaded = false;
 let isRunning = false;
 let emergencyTimer = null;
 let countdownInterval = null;
@@ -37,6 +38,28 @@ let lastSpeedLimitCheck = 0;
 let isSpeedingAlertActive = false;
 let lastImpactTime = 0;
 const IMPACT_G_THRESHOLD = 4.5; // G-force threshold for a "crash"
+/** @type {{ lat: number, lng: number, t: number } | null} */
+let lastSpeedSample = null;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function parseMaxSpeedKmh(str) {
+    if (str == null || str === '') return NaN;
+    const s = String(str).trim().toLowerCase();
+    const match = s.match(/([\d.]+)/);
+    if (!match) return NaN;
+    const num = parseFloat(match[1]);
+    if (Number.isNaN(num)) return NaN;
+    if (s.includes('mph')) return Math.round(num * 1.60934);
+    return Math.round(num);
+}
 
 // IndexedDB Constants
 const DB_NAME = 'DriverWatchDB';
@@ -62,6 +85,8 @@ ringingSound.loop = true;
 const synth = window.speechSynthesis;
 let dispatchUtterance = null;
 let heartbeatInterval = null; // Manage speech keep-alive
+let dispatchSpeechPulseInterval = null; // synth.resume() while dispatch overlay is open
+let dispatcherVoiceRetryCount = 0;
 let currentPulseInterval = null;
 let currentWarningInterval = null;
 
@@ -288,8 +313,9 @@ auth.onAuthStateChanged(async (user) => {
 
                 const dispName = document.getElementById('dispatch-contact-name');
                 const dispPhone = document.getElementById('dispatch-contact-phone');
-                if (dispName) dispName.innerText = currentUserData.emergencyContact.name.toUpperCase();
-                if (dispPhone) dispPhone.innerText = currentUserData.emergencyContact.phone;
+                const ec = currentUserData.emergencyContact;
+                if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
+                if (dispPhone) dispPhone.innerText = ec?.phone || '---';
             } else {
                 console.warn("User authenticated but profile document missing. Forcing onboarding...");
                 window.location.replace('login.html');
@@ -342,6 +368,7 @@ if (clearLogBtn) clearLogBtn.addEventListener('click', () => {
 // INITIALIZATION SEQUENCE
 // ==========================================
 async function init() {
+    isModelLoaded = false;
     try {
         await initDB();
     } catch (e) {
@@ -373,6 +400,7 @@ async function init() {
     try {
         logEvent('Initializing Dashcam and Driver Status Monitor...', 't-info');
         model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        isModelLoaded = true;
         maxPredictions = model.getTotalClasses();
 
         webcam = new tmImage.Webcam(400, 300, true);
@@ -411,7 +439,7 @@ async function init() {
         sessionInterval = setInterval(updateSessionStats, 1000);
 
         stopBtn.disabled = false;
-        navSystemTag.innerHTML = `SYSTEM: <span class="status-indicator ACTIVE">ACTIVE</span>`;
+        navSystemTag.innerHTML = `SYS: <span class="status-indicator ACTIVE">ACTIVE</span>`;
         cameraBadge.innerText = 'ONLINE';
         cameraBadge.className = 'panel-badge ONLINE';
         liveIndicator.classList.add('active');
@@ -426,6 +454,7 @@ async function init() {
         startImpactDetection();
 
     } catch (error) {
+        isModelLoaded = false;
         if (startupMessage) {
             startupMessage.style.display = 'flex';
             startupMessage.innerHTML = '<div class="standby-text" style="color:var(--stat-danger)">CAMERA ERROR</div>';
@@ -625,6 +654,25 @@ function triggerEmergency(isImpact = false) {
 
     logEvent(isImpact ? 'CRITICAL: High-G event detected. Auto-dispatch active.' : 'ESCALATION: Real emergency dispatch initiated.', 't-crit');
     stopHDAudioAlarm();
+
+    // TTS as soon as the dispatch overlay is visible (not after async WhatsApp / GPS scan)
+    initAudioContext();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    try {
+        if (synth) synth.resume();
+        playDispatcherVoice();
+    } catch (e) {
+        try { playDispatcherVoice(); } catch (e2) { }
+    }
+    if (dispatchSpeechPulseInterval) clearInterval(dispatchSpeechPulseInterval);
+    dispatchSpeechPulseInterval = setInterval(() => {
+        if (synth) synth.resume();
+        if (!isEmergencyActive) {
+            clearInterval(dispatchSpeechPulseInterval);
+            dispatchSpeechPulseInterval = null;
+        }
+    }, 500);
+
     startRealDispatch(isImpact);
 }
 
@@ -718,17 +766,6 @@ async function startRealDispatch(isImpact = false) {
 
         if (transferProgress) transferProgress.style.width = '100%';
         if (emergencyStatusText) emergencyStatusText.innerText = 'DISPATCH COMPLETE. EMERGENCY CONTACT ALERTED.';
-
-        // Also trigger speech
-        try {
-            const speechPulse = setInterval(() => {
-                if (synth) synth.resume();
-                if (!isEmergencyActive) clearInterval(speechPulse);
-            }, 500);
-            playDispatcherVoice();
-        } catch (e) {
-            playDispatcherVoice();
-        }
     } catch (criticalErr) {
         console.error("Critical Dispatch Failure:", criticalErr);
         logEvent(`CRITICAL: Dispatch engine error — ${criticalErr.message}`, 't-crit');
@@ -779,22 +816,34 @@ async function scanNearbyEmergencyServices(lat, lng) {
 function startLocationTracking() {
     if (!navigator.geolocation) return;
 
+    lastSpeedSample = null;
     geoWatchId = navigator.geolocation.watchPosition(
         async (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const now = Date.now();
             currentGeoPosition = {
-                lat: position.coords.latitude.toFixed(6),
-                lng: position.coords.longitude.toFixed(6),
+                lat: lat.toFixed(6),
+                lng: lng.toFixed(6),
                 acc: position.coords.accuracy.toFixed(1)
             };
 
-            // Handle Speed (m/s to km/h)
-            if (position.coords.speed !== null) {
-                currentSpeed = Math.round(position.coords.speed * 3.6);
-                if (statSpeed) statSpeed.innerText = `${currentSpeed} km/h`;
-
-                // Real-time Speed Limit Logic
-                checkSpeedLimit(currentGeoPosition.lat, currentGeoPosition.lng);
+            const rawSpeed = position.coords.speed;
+            if (rawSpeed !== null && rawSpeed !== undefined && rawSpeed >= 0) {
+                currentSpeed = Math.round(rawSpeed * 3.6);
+            } else if (lastSpeedSample) {
+                const dt = (now - lastSpeedSample.t) / 1000;
+                if (dt > 0.4 && dt < 90) {
+                    const distKm = haversineKm(lastSpeedSample.lat, lastSpeedSample.lng, lat, lng);
+                    const kmh = (distKm / dt) * 3600;
+                    if (kmh >= 0 && kmh < 300) currentSpeed = Math.round(kmh);
+                }
             }
+            lastSpeedSample = { lat, lng, t: now };
+
+            if (statSpeed) statSpeed.innerText = `${currentSpeed} km/h`;
+
+            await checkSpeedLimit(currentGeoPosition.lat, currentGeoPosition.lng);
 
             const locEl = document.getElementById('dispatch-location');
             if (locEl) {
@@ -825,18 +874,20 @@ async function checkSpeedLimit(lat, lon) {
         const data = await response.json();
 
         if (data.elements && data.elements.length > 0) {
-            // Get the first found maxspeed
             const limitStr = data.elements[0].tags.maxspeed;
-            currentSpeedLimit = parseInt(limitStr);
+            currentSpeedLimit = parseMaxSpeedKmh(limitStr);
+            if (!Number.isFinite(currentSpeedLimit)) {
+                currentSpeedLimit = null;
+            }
 
             if (statLimit) {
-                statLimit.innerText = `${currentSpeedLimit} km/h`;
+                statLimit.innerText = currentSpeedLimit != null ? `${currentSpeedLimit} km/h` : '---';
                 statLimit.classList.remove('unknown');
             }
 
-            // Check for speeding
             evaluateSpeeding();
         } else {
+            currentSpeedLimit = null;
             console.log("No speed limit found in OSM for this location.");
             if (statLimit) statLimit.innerText = `---`;
         }
@@ -846,7 +897,7 @@ async function checkSpeedLimit(lat, lon) {
 }
 
 function evaluateSpeeding() {
-    if (!currentSpeedLimit) return;
+    if (currentSpeedLimit == null || !Number.isFinite(currentSpeedLimit)) return;
 
     // Buffer of 5 km/h over limit
     if (currentSpeed > currentSpeedLimit + 5) {
@@ -926,7 +977,7 @@ function startImpactDetection() {
 }
 
 function stopImpactDetection() {
-    window.removeEventListener('devicemotion', handleMotion);
+    window.removeEventListener('devicemotion', handleMotion, true);
 }
 
 function handleMotion(event) {
@@ -978,8 +1029,9 @@ function playDispatcherVoice() {
         let locationContext = "transmitting location";
 
         if (currentUserData) {
-            driverContext = currentUserData.driverName;
-            contactContext = `${currentUserData.emergencyContact.name}`;
+            driverContext = currentUserData.driverName || driverContext;
+            const ecName = currentUserData.emergencyContact?.name;
+            if (ecName) contactContext = ecName;
         }
 
         if (currentGeoPosition) {
@@ -1036,6 +1088,10 @@ function cancelEmergency() {
     ringingSound.currentTime = 0;
 
     dispatcherVoiceRetryCount = 0;
+    if (dispatchSpeechPulseInterval) {
+        clearInterval(dispatchSpeechPulseInterval);
+        dispatchSpeechPulseInterval = null;
+    }
     if (synth) synth.cancel();
     if (emergencyTimer) clearTimeout(emergencyTimer);
     if (simulatedCallInterval) clearInterval(simulatedCallInterval);
@@ -1283,11 +1339,20 @@ function updateSessionStats() {
 
 function stopSystem() {
     isRunning = false;
+    isModelLoaded = false;
     stopRecording();
+    stopLocationTracking();
+    stopImpactDetection();
+    lastSpeedSample = null;
     clearInterval(sessionInterval);
     if (webcam) webcam.stop();
     if (keepWarmInterval) clearInterval(keepWarmInterval);
+    if (liveIndicator) liveIndicator.classList.remove('active');
+    if (cameraBadge) {
+        cameraBadge.innerText = 'INACTIVE';
+        cameraBadge.className = 'panel-badge';
+    }
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    navSystemTag.innerHTML = `SYSTEM: <span class="status-indicator">STANDBY</span>`;
+    navSystemTag.innerHTML = `SYS: <span class="status-indicator">STANDBY</span>`;
 }
