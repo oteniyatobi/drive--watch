@@ -282,12 +282,50 @@
             }
 
             .auth-panel {
-                padding: 1.25rem;
+                padding: 1rem;
                 border-radius: 8px;
             }
 
             .auth-header h2 {
                 font-size: 1.1rem;
+            }
+
+            .form-group input {
+                padding: 0.75rem 0.85rem;
+                font-size: 0.95rem;
+            }
+
+            .auth-toggle {
+                flex-direction: column;
+            }
+
+            .toggle-btn {
+                border-right: none;
+                border-bottom: 1px solid var(--sys-border-high);
+                padding: 0.85rem 0.25rem;
+            }
+
+            .toggle-btn:last-child {
+                border-bottom: none;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .auth-panel {
+                padding: 0.85rem;
+            }
+
+            .auth-header h2 {
+                font-size: 1rem;
+            }
+
+            .form-group input {
+                font-size: 0.85rem;
+            }
+
+            #verificationCode {
+                letter-spacing: 0.2em !important;
+                font-size: 1.25rem !important;
             }
         }
     </style>

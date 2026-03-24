@@ -1110,7 +1110,7 @@ button:disabled {
     }
 
     .logo h1 {
-        font-size: 1rem;
+        font-size: 0.9rem;
     }
 
     .header-tags-container {
@@ -1189,9 +1189,13 @@ button:disabled {
         width: 100%;
     }
 
-    .btn-main {
-        padding: 1.25rem;
-        font-size: 0.9rem;
+    .btn-main,
+    .btn-primary,
+    .btn-secondary,
+    .btn-override,
+    .btn-abort {
+        padding: 0.85rem;
+        font-size: 0.85rem;
     }
 
     .camera-wrapper {
@@ -1245,5 +1249,37 @@ button:disabled {
 @media (max-width: 380px) {
     .metrics-grid {
         grid-template-columns: 1fr;
+    }
+
+    .logo h1 {
+        font-size: 0.8rem;
+    }
+
+    .system-tag {
+        font-size: 0.65rem;
+        padding: 0.4rem;
+    }
+
+    .nav-right {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .nav-right .export-btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .modal-content {
+        padding: 1rem;
+    }
+
+    .alert-massive {
+        font-size: 1.25rem;
+    }
+
+    .btn-override,
+    .btn-abort {
+        padding: 0.75rem;
     }
 }
