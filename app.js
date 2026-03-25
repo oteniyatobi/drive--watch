@@ -360,7 +360,8 @@ function logEvent(message, type = 't-info') {
 }
 
 const clearLogBtn = document.getElementById('clear-log-btn');
-if (clearLogBtn) clearLogBtn.addEventListener('click', () => {
+if (clearLogBtn) clearLogBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
     activityLog.innerHTML = '<div class="terminal-line">[SYS] Buffer cleared by operator.</div>';
 });
 
