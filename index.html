@@ -170,6 +170,11 @@
                         <h3>MEDIA VAULT</h3>
                         <button type="button" class="export-btn btn-summary-action" onclick="event.stopPropagation(); loadMediaVault();" title="Refresh Vault">REFRESH</button>
                     </summary>
+                    <p class="vault-hint">Recordings are stored in your Firebase database (metadata) and cloud storage (video files). Search or copy a reference for insurance or fleet records.</p>
+                    <div class="vault-toolbar">
+                        <label class="sr-only" for="vault-search">Search recordings</label>
+                        <input type="search" id="vault-search" class="vault-search-input" placeholder="Search by reference, date, type, or name…" autocomplete="off" />
+                    </div>
                     <div class="vault-container" id="vault-list">
                         <div class="empty-data">INITIALIZING VAULT...</div>
                     </div>

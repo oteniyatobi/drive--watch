@@ -1,0 +1,11 @@
+rules_version = '2';
+// Deploy in Firebase Console → Storage → Rules, or: firebase deploy --only storage
+// Video files live under users/{userId}/videos/
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/videos/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

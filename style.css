@@ -760,6 +760,45 @@ button:disabled {
     flex-grow: 1;
 }
 
+.vault-hint {
+    font-size: 0.65rem;
+    color: var(--acc-muted);
+    margin: 0 0 0.5rem 0;
+    line-height: 1.35;
+}
+
+.vault-toolbar {
+    margin-bottom: 0.4rem;
+}
+
+.vault-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    padding: 0.4rem 0.5rem;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--sys-border);
+    border-radius: 2px;
+    color: var(--acc-primary);
+}
+
+.vault-search-input::placeholder {
+    color: var(--acc-muted);
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .vault-container {
     background: #000;
     border: 1px solid var(--sys-border);
@@ -799,6 +838,12 @@ button:disabled {
     color: var(--acc-muted);
 }
 
+.vault-ref {
+    font-size: 0.6rem;
+    color: var(--stat-info);
+    letter-spacing: 0.02em;
+}
+
 .vault-actions {
     display: flex;
     gap: 0.5rem;
@@ -831,6 +876,20 @@ button:disabled {
 .btn-del:hover {
     color: var(--stat-danger);
     border-color: var(--stat-danger);
+}
+
+.btn-copy-ref {
+    padding: 0.3rem 0.45rem;
+    font-size: 0.55rem;
+    border-radius: 2px;
+    border: 1px solid var(--sys-border-high);
+    background: transparent;
+    color: var(--stat-info);
+}
+
+.btn-copy-ref:hover {
+    border-color: var(--stat-info);
+    color: var(--acc-primary);
 }
 
 /* VAULT PLAYER */
@@ -1428,6 +1487,7 @@ button:disabled {
     }
 
     .vault-actions .btn-play,
+    .vault-actions .btn-copy-ref,
     .vault-actions .btn-del {
         flex: 1;
         min-height: 44px;

@@ -73,11 +73,43 @@ function parseMaxSpeedKmh(str) {
     return Math.round(num);
 }
 
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/** Avoids throw when /api returns HTML error pages or empty body */
+async function readJsonResponse(response) {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch {
+        return { error: 'Invalid or non-JSON response from server' };
+    }
+}
+
+/** Human-readable id for support / insurance — stored in Firestore with each recording */
+function makeReferenceId(id) {
+    const clean = String(id).replace(/[^a-zA-Z0-9]/g, '');
+    const tail = clean.slice(-10) || clean || 'UNK';
+    return `DW-${tail}`;
+}
+
 // IndexedDB Constants
 const DB_NAME = 'DriverWatchDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'videos';
 let localDb = null;
+
+/** Real-time Firestore listener for cloud recordings */
+let vaultFirestoreUnsub = null;
+/** Merged local + cloud rows for search / display */
+let vaultEntriesCache = [];
 
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
@@ -308,9 +340,36 @@ const statSpeed = document.getElementById('stat-speed');
 const statLimit = document.getElementById('stat-limit');
 const statScore = document.getElementById('stat-score');
 
+function detachVaultFirestoreListener() {
+    if (vaultFirestoreUnsub) {
+        vaultFirestoreUnsub();
+        vaultFirestoreUnsub = null;
+    }
+}
+
+function attachVaultFirestoreListener() {
+    detachVaultFirestoreListener();
+    const user = auth.currentUser;
+    if (!user) return;
+    const col = db.collection('users').doc(user.uid).collection('recordings');
+    vaultFirestoreUnsub = col.orderBy('timestamp', 'desc').limit(300).onSnapshot(
+        (snap) => {
+            void loadMediaVault(snap);
+        },
+        (err) => {
+            console.warn('Vault listener (ordered query failed):', err);
+            detachVaultFirestoreListener();
+            vaultFirestoreUnsub = col.limit(500).onSnapshot((snap) => {
+                void loadMediaVault(snap);
+            });
+        }
+    );
+}
+
 // Load User Data via Firebase Auth State
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
+        detachVaultFirestoreListener();
         console.log("No authenticated user found. Redirecting to login...");
         window.location.replace('login.html');
     } else {
@@ -328,6 +387,7 @@ auth.onAuthStateChanged(async (user) => {
                 const ec = currentUserData.emergencyContact;
                 if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
                 if (dispPhone) dispPhone.innerText = ec?.phone || '---';
+                attachVaultFirestoreListener();
             } else {
                 console.warn("User authenticated but profile document missing. Opening setup...");
                 window.location.replace('login.html?setup=1');
@@ -393,6 +453,11 @@ if (clearLogBtn) clearLogBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     activityLog.innerHTML = '<div class="terminal-line">[SYS] Buffer cleared by operator.</div>';
 });
+
+const vaultSearch = document.getElementById('vault-search');
+if (vaultSearch) {
+    vaultSearch.addEventListener('input', () => renderVaultTable(vaultSearch.value));
+}
 
 // ==========================================
 // INITIALIZATION SEQUENCE
@@ -785,7 +850,7 @@ async function startRealDispatch(isImpact = false) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const result = await response.json();
+                const result = await readJsonResponse(response);
                 if (response.ok && result.success) {
                     logEvent(`WHATSAPP: ✅ Emergency alert delivered to ${contactName}.`, 't-succ');
                 } else {
@@ -830,21 +895,25 @@ async function scanNearbyEmergencyServices(lat, lng) {
     const data = await response.json();
     const elements = data.elements || [];
 
-    if (elements.length === 0) {
+    const withCoords = elements.filter((el) => el.lat != null && el.lon != null);
+    if (withCoords.length === 0) {
         return '<div style="color:var(--acc-muted)">No services found within 5km.</div>';
     }
 
-    return elements.slice(0, 5).map(el => {
-        const name = el.tags.name || el.tags.amenity || 'Unknown Service';
-        const type = (el.tags.amenity || el.tags.emergency || '').toUpperCase().replace('_', ' ');
-        const phone = el.tags.phone || el.tags['contact:phone'] || '';
+    return withCoords.slice(0, 5).map((el) => {
+        const rawName = el.tags.name || el.tags.amenity || 'Unknown Service';
+        const rawType = (el.tags.amenity || el.tags.emergency || '').toUpperCase().replace('_', ' ');
+        const rawPhone = el.tags.phone || el.tags['contact:phone'] || '';
+        const name = escapeHtml(rawName);
+        const type = escapeHtml(rawType);
+        const phone = escapeHtml(rawPhone);
         const elLat = el.lat.toFixed(5);
         const elLng = el.lon.toFixed(5);
         const link = `https://maps.google.com/?q=${elLat},${elLng}`;
         return `<div style="padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
             <span style="color:var(--stat-warn);">[${type}]</span> ${name}
-            ${phone ? `<span style="color:var(--acc-muted)"> | 📞 ${phone}</span>` : ''}
-            <a href="${link}" target="_blank" style="color:var(--stat-info); margin-left: 0.5rem;">📍 MAP</a>
+            ${rawPhone ? `<span style="color:var(--acc-muted)"> | 📞 ${phone}</span>` : ''}
+            <a href="${link}" target="_blank" rel="noopener noreferrer" style="color:var(--stat-info); margin-left: 0.5rem;">📍 MAP</a>
         </div>`;
     }).join('');
 }
@@ -962,7 +1031,7 @@ async function notifySpeedingContactOnce() {
                 speedLimitKmh: currentSpeedLimit
             })
         });
-        const result = await response.json();
+        const result = await readJsonResponse(response);
         if (response.ok && result.success) {
             logEvent('WHATSAPP: Speeding advisory sent.', 't-succ');
         } else {
@@ -1236,39 +1305,53 @@ function initDB() {
 }
 
 function saveVideoToDB(id, blob, type) {
+    const referenceId = makeReferenceId(id);
     // 1. Save Locally (IndexedDB)
     if (localDb) {
         const transaction = localDb.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        store.put({ id: id, blob: blob, type: type, timestamp: new Date().toLocaleString() });
+        store.put({
+            id: id,
+            blob: blob,
+            type: type,
+            timestamp: new Date().toLocaleString(),
+            referenceId: referenceId
+        });
     }
 
     // 2. Save to Cloud (Firebase Storage + Firestore)
-    saveVideoToCloud(id, blob, type);
+    saveVideoToCloud(id, blob, type, referenceId);
 
     loadMediaVault();
 }
 
-async function saveVideoToCloud(id, blob, type) {
+async function saveVideoToCloud(id, blob, type, referenceId) {
     const user = auth.currentUser;
     if (!user) return;
 
+    const refId = referenceId || makeReferenceId(id);
     try {
         logEvent(`CLOUD: Uploading ${type} to secure vault...`, 't-info');
-        const fileRef = storage.ref().child(`users/${user.uid}/videos/${id}.webm`);
+        const storagePath = `users/${user.uid}/videos/${id}.webm`;
+        const fileRef = storage.ref().child(storagePath);
         const snapshot = await fileRef.put(blob);
         const downloadURL = await snapshot.ref.getDownloadURL();
 
-        // Store metadata in Firestore
+        const driverName = currentUserData?.driverName || user.displayName || 'Driver';
+
         await db.collection('users').doc(user.uid).collection('recordings').doc(id).set({
             id: id,
+            referenceId: refId,
+            userId: user.uid,
+            driverName: driverName,
             url: downloadURL,
+            storagePath: storagePath,
             type: type,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             readableTime: new Date().toLocaleString()
         });
 
-        logEvent(`CLOUD: ✅ ${type} successfully synchronized.`, 't-succ');
+        logEvent(`CLOUD: ✅ ${type} saved to your vault (ref ${refId}).`, 't-succ');
         loadMediaVault(); // Refresh to show cloud icon
     } catch (e) {
         console.error("Cloud Upload Failed:", e);
@@ -1285,7 +1368,79 @@ function vaultSortMillis(v) {
     return Number.isNaN(n) ? 0 : n;
 }
 
-async function loadMediaVault() {
+function getVaultSearchQuery() {
+    const el = document.getElementById('vault-search');
+    return el ? el.value.trim() : '';
+}
+
+function renderVaultTable(filterText) {
+    const vaultContainer = document.getElementById('vault-list');
+    if (!vaultContainer) return;
+    const q = (filterText || '').toLowerCase();
+    const rows = q
+        ? vaultEntriesCache.filter((v) => {
+            const ref = (v.referenceId || '').toLowerCase();
+            const idStr = (v.id || '').toLowerCase();
+            const typ = (v.type || '').toLowerCase();
+            const tim = String(v.timestamp || '').toLowerCase();
+            const driver = (v.driverName || '').toLowerCase();
+            return ref.includes(q) || idStr.includes(q) || typ.includes(q) || tim.includes(q) || driver.includes(q);
+        })
+        : vaultEntriesCache;
+
+    const sorted = [...rows].sort((a, b) => vaultSortMillis(b) - vaultSortMillis(a));
+
+    if (sorted.length === 0) {
+        vaultContainer.innerHTML = vaultEntriesCache.length === 0
+            ? '<div class="empty-data">NO RECORDS FOUND</div>'
+            : '<div class="empty-data">NO MATCHES — TRY ANOTHER SEARCH</div>';
+        return;
+    }
+
+    vaultContainer.innerHTML = '';
+    sorted.forEach((video) => {
+        const item = document.createElement('div');
+        item.className = 'vault-item';
+        const sourceIcon = video.isLocal ? '💾' : '☁️';
+        const typeLabel = escapeHtml(video.type);
+        const timeLabel = escapeHtml(String(video.timestamp));
+        const refId = escapeHtml(video.referenceId || makeReferenceId(video.id));
+        item.innerHTML = `
+            <div class="vault-info">
+                <span class="vault-type">${sourceIcon} ${typeLabel}</span>
+                <span class="vault-time">${timeLabel}</span>
+                <span class="vault-ref">REF ${refId}</span>
+            </div>
+            <div class="vault-actions">
+                <button type="button" class="btn-play" onclick="void playVideo(${JSON.stringify(video.id)}, ${video.isLocal}, ${JSON.stringify(video.url || '')})">PLAY</button>
+                <button type="button" class="btn-copy-ref" title="Copy reference for your records" onclick="copyVaultReference(${JSON.stringify(video.id)}, ${JSON.stringify(video.referenceId || makeReferenceId(video.id))}, ${JSON.stringify(video.type)}, ${JSON.stringify(String(video.timestamp))})">REF</button>
+                <button type="button" class="btn-del" onclick="deleteVideo(${JSON.stringify(video.id)}, ${video.isLocal})">DEL</button>
+            </div>
+        `;
+        vaultContainer.appendChild(item);
+    });
+}
+
+function copyVaultReference(videoId, referenceId, typeLabel, timeLabel) {
+    const ref = referenceId || videoId;
+    const text =
+        `DriverWatch — video reference\n` +
+        `Ref: ${ref}\n` +
+        `Recording ID: ${videoId}\n` +
+        `Type: ${typeLabel}\n` +
+        `Time: ${timeLabel}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            logEvent('Reference copied — use for insurance or fleet records.', 't-succ');
+        }).catch(() => {
+            logEvent('Could not copy — select and copy manually.', 't-warn');
+        });
+    } else {
+        logEvent('Clipboard unavailable in this browser.', 't-warn');
+    }
+}
+
+async function loadMediaVault(optionalSnapshot) {
     const vaultContainer = document.getElementById('vault-list');
     if (!vaultContainer) return;
     vaultContainer.innerHTML = '<div class="empty-data">Syncing with fleet vault...</div>';
@@ -1293,77 +1448,55 @@ async function loadMediaVault() {
     const user = auth.currentUser;
     let allVideos = [];
 
-    // 1. Fetch Local Videos (IndexedDB)
     if (localDb) {
         const localVideos = await new Promise((resolve) => {
             const transaction = localDb.transaction([STORE_NAME], 'readonly');
             transaction.objectStore(STORE_NAME).getAll().onsuccess = (e) => resolve(e.target.result);
         });
-        allVideos = localVideos.map(v => ({
+        allVideos = localVideos.map((v) => ({
             ...v,
             isLocal: true,
+            referenceId: v.referenceId || makeReferenceId(v.id),
             _sortKey: new Date(v.timestamp).getTime() || 0
         }));
     }
 
-    // 2. Fetch Cloud Videos (Firestore) — ordered query, or fallback if index/old docs missing fields
     if (user) {
         const col = db.collection('users').doc(user.uid).collection('recordings');
-        try {
-            const snapshot = await col.orderBy('timestamp', 'desc').limit(300).get();
-            snapshot.forEach(docSnap => {
+        let snapshot = optionalSnapshot || null;
+        if (!snapshot) {
+            try {
+                snapshot = await col.orderBy('timestamp', 'desc').limit(300).get();
+            } catch (e1) {
+                console.warn('Vault ordered query failed, trying broad fetch:', e1);
+                try {
+                    snapshot = await col.limit(500).get();
+                    logEvent('VAULT: Loaded recordings (fallback query). If some are missing, check Firestore index.', 't-warn');
+                } catch (e2) {
+                    console.warn('Could not fetch cloud vault:', e2);
+                    logEvent('VAULT: Could not load cloud recordings. Check login and network.', 't-warn');
+                    snapshot = null;
+                }
+            }
+        }
+
+        if (snapshot) {
+            snapshot.forEach((docSnap) => {
                 const data = docSnap.data();
-                if (allVideos.find(v => v.id === data.id)) return;
+                if (allVideos.find((v) => v.id === data.id)) return;
+                const refId = data.referenceId || makeReferenceId(data.id);
                 const sk = (data.timestamp?.toMillis?.() ?? (data.timestamp?.seconds ? data.timestamp.seconds * 1000 : null) ?? new Date(data.readableTime || 0).getTime()) || 0;
                 const label = data.readableTime || (data.timestamp && data.timestamp.toDate ? data.timestamp.toDate().toLocaleString() : null) || '—';
-                allVideos.push({ ...data, isLocal: false, timestamp: label, _sortKey: sk });
+                allVideos.push({ ...data, referenceId: refId, isLocal: false, timestamp: label, _sortKey: sk });
             });
-        } catch (e1) {
-            console.warn('Vault ordered query failed, trying broad fetch:', e1);
-            try {
-                const snapshot = await col.limit(500).get();
-                snapshot.forEach(docSnap => {
-                    const data = docSnap.data();
-                    if (allVideos.find(v => v.id === data.id)) return;
-                    const sk = (data.timestamp?.toMillis?.() ?? (data.timestamp?.seconds ? data.timestamp.seconds * 1000 : null) ?? new Date(data.readableTime || 0).getTime()) || 0;
-                    const label = data.readableTime || (data.timestamp && data.timestamp.toDate ? data.timestamp.toDate().toLocaleString() : '—');
-                    allVideos.push({ ...data, isLocal: false, timestamp: label, _sortKey: sk });
-                });
-                logEvent('VAULT: Loaded recordings (fallback query). If some are missing, check Firestore index.', 't-warn');
-            } catch (e2) {
-                console.warn('Could not fetch cloud vault:', e2);
-                logEvent('VAULT: Could not load cloud recordings. Check login and network.', 't-warn');
-            }
         }
     }
 
-    if (allVideos.length === 0) {
-        vaultContainer.innerHTML = '<div class="empty-data">NO RECORDS FOUND</div>';
-        return;
-    }
-
-    allVideos.sort((a, b) => vaultSortMillis(b) - vaultSortMillis(a));
-
-    vaultContainer.innerHTML = '';
-    allVideos.forEach(video => {
-        const item = document.createElement('div');
-        item.className = 'vault-item';
-        const sourceIcon = video.isLocal ? '💾' : '☁️';
-        item.innerHTML = `
-            <div class="vault-info">
-                <span class="vault-type">${sourceIcon} ${video.type}</span>
-                <span class="vault-time">${video.timestamp}</span>
-            </div>
-            <div class="vault-actions">
-                <button class="btn-play" onclick="playVideo('${video.id}', ${video.isLocal}, '${video.url || ''}')">PLAY</button>
-                <button class="btn-del" onclick="deleteVideo('${video.id}', ${video.isLocal})">DEL</button>
-            </div>
-        `;
-        vaultContainer.appendChild(item);
-    });
+    vaultEntriesCache = allVideos;
+    renderVaultTable(getVaultSearchQuery());
 }
 
-function playVideo(id, isLocal, cloudUrl) {
+async function playVideo(id, isLocal, cloudUrl) {
     const player = document.getElementById('vault-player');
     const modal = document.getElementById('vault-modal');
     if (!player || !modal) return;
@@ -1375,8 +1508,22 @@ function playVideo(id, isLocal, cloudUrl) {
             const video = event.target.result;
             if (video) startPlayback(window.URL.createObjectURL(video.blob));
         };
-    } else if (cloudUrl) {
-        startPlayback(cloudUrl);
+        return;
+    }
+
+    let url = cloudUrl;
+    if (!url && auth.currentUser) {
+        try {
+            const doc = await db.collection('users').doc(auth.currentUser.uid).collection('recordings').doc(id).get();
+            url = doc.exists ? doc.data().url : null;
+        } catch (e) {
+            console.warn('Vault: could not load download URL', e);
+        }
+    }
+    if (url) {
+        startPlayback(url);
+    } else {
+        logEvent('VAULT: Playback URL unavailable. Try REFRESH or check your connection.', 't-warn');
     }
 }
 
@@ -1414,19 +1561,38 @@ function closeVaultPlayer() {
 function deleteVideo(id, isLocal) {
     if (!confirm('Permanent delete from vault?')) return;
 
-    if (isLocal && localDb) {
-        localDb.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).delete(id).onsuccess = loadMediaVault;
-    }
-
     const user = auth.currentUser;
-    if (user) {
-        // Delete from Firestore
-        db.collection('users').doc(user.uid).collection('recordings').doc(id).delete().then(() => {
+
+    const finish = () => loadMediaVault();
+
+    const deleteCloud = async () => {
+        if (!user) return;
+        try {
+            await db.collection('users').doc(user.uid).collection('recordings').doc(id).delete();
+            await storage.ref().child(`users/${user.uid}/videos/${id}.webm`).delete().catch(() => {});
             logEvent('CLOUD: Record removed from fleet vault.', 't-info');
-            loadMediaVault();
-        });
-        // Note: Actual storage file deletion can be handled by cloud functions or separate call, 
-        // but removing the pointer from Firestore is enough for this prototype.
+        } catch (e) {
+            console.warn('Cloud vault delete:', e);
+        }
+    };
+
+    const afterLocalRemoved = () => {
+        if (user) {
+            void deleteCloud().finally(finish);
+        } else {
+            finish();
+        }
+    };
+
+    if (isLocal && localDb) {
+        const tx = localDb.transaction([STORE_NAME], 'readwrite');
+        tx.objectStore(STORE_NAME).delete(id);
+        tx.oncomplete = afterLocalRemoved;
+        tx.onerror = () => finish();
+    } else if (user) {
+        void deleteCloud().finally(finish);
+    } else {
+        finish();
     }
 }
 

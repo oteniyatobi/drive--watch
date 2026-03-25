@@ -1,0 +1,11 @@
+rules_version = '2';
+// Deploy in Firebase Console → Firestore → Rules, or: firebase deploy --only firestore:rules
+// Users may only read/write their own profile and subcollections (e.g. recordings metadata).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
