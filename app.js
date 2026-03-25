@@ -264,7 +264,8 @@ function startHDSpeedingBeep() {
 // ==========================================
 // SUBSYSTEM: PREDICTION STABILIZATION
 // ==========================================
-const SMOOTHING_WINDOW = 10;
+/** Rolling average length — higher = steadier bar readouts, fewer single-frame spikes */
+const SMOOTHING_WINDOW = 14;
 let predictionHistory = [];
 
 function getSmoothedPredictions(rawPrediction) {
@@ -289,10 +290,77 @@ function getSmoothedPredictions(rawPrediction) {
     return smoothed;
 }
 
+/**
+ * Map TM labels (AWAKE / SLEEPY / NEUTRAL) to probabilities for fatigue logic.
+ * Odd camera angles often inflate NEUTRAL — we require SLEEPY to win both others by a margin.
+ */
+function getClassProbabilities(prediction) {
+    let awake = 0;
+    let sleepy = 0;
+    let neutral = 0;
+    for (let i = 0; i < prediction.length; i++) {
+        const raw = prediction[i].className.toLowerCase();
+        const v = prediction[i].probability;
+        if (raw.includes('awake')) awake = v;
+        else if (raw.includes('sleepy') || raw.includes('asleep')) sleepy = v;
+        else if (raw.includes('neutral')) neutral = v;
+    }
+    return { awake, sleepy, neutral };
+}
+
+// --- Fatigue inference gates (no model retrain required; tune here) ---
+const SLEEPY_PROB_MIN = 0.69;
+const SLEEPY_MARGIN_MIN = 0.11;
+/** Consecutive “raw fatigue” frames before escalation timers start (~200ms @ 60fps) */
+const FATIGUE_ENTRY_FRAMES = 12;
+/** Consecutive non-fatigue frames before clearing (~80ms @ 60fps) — fast recovery when alert */
+const FATIGUE_EXIT_FRAMES = 5;
+
+let fatigueTrueStreak = 0;
+let fatigueFalseStreak = 0;
+let sustainedFatigueDetection = false;
+
+function resetFatigueStreaks() {
+    predictionHistory = [];
+    fatigueTrueStreak = 0;
+    fatigueFalseStreak = 0;
+    sustainedFatigueDetection = false;
+}
+
+function isRawFatigueFrame(sleepy, awake, neutral) {
+    if (sleepy < SLEEPY_PROB_MIN) return false;
+    const maxOther = Math.max(awake, neutral);
+    if (sleepy <= maxOther) return false;
+    if (sleepy - maxOther < SLEEPY_MARGIN_MIN) return false;
+    return true;
+}
+
+function updateSustainedFatigue(isRaw) {
+    if (isRaw) {
+        fatigueFalseStreak = 0;
+        if (!sustainedFatigueDetection) {
+            fatigueTrueStreak++;
+            if (fatigueTrueStreak >= FATIGUE_ENTRY_FRAMES) {
+                sustainedFatigueDetection = true;
+            }
+        }
+    } else {
+        fatigueTrueStreak = 0;
+        if (sustainedFatigueDetection) {
+            fatigueFalseStreak++;
+            if (fatigueFalseStreak >= FATIGUE_EXIT_FRAMES) {
+                sustainedFatigueDetection = false;
+            }
+        } else {
+            fatigueFalseStreak = 0;
+        }
+    }
+    return sustainedFatigueDetection;
+}
+
 // ==========================================
 // SYSTEM THRESHOLDS 
 // ==========================================
-const ASLEEP_THRESHOLD = 0.70;
 const SECONDS_TO_TRIGGER_WARNING = 4;
 const SECONDS_TO_TRIGGER_ALARM = 8;
 const EMERGENCY_CALL_DELAY = 10;
@@ -527,7 +595,7 @@ async function init() {
             `;
         }
 
-        predictionHistory = [];
+        resetFatigueStreaks();
         isRunning = true;
         sessionStartTime = Date.now();
         totalAlerts = 0;
@@ -586,7 +654,9 @@ async function loop() {
 async function predict() {
     const rawPrediction = await model.predict(webcam.canvas);
     const prediction = getSmoothedPredictions(rawPrediction);
-    let isAsleep = false;
+    const { awake, sleepy, neutral } = getClassProbabilities(prediction);
+    const rawFatigue = isRawFatigueFrame(sleepy, awake, neutral);
+    const isAsleep = updateSustainedFatigue(rawFatigue);
 
     for (let i = 0; i < maxPredictions; i++) {
         const val = prediction[i].probability;
@@ -601,8 +671,6 @@ async function predict() {
         bar.className = `nn-fill ${type}`;
         bar.style.width = `${val * 100}%`;
         valText.innerText = (val * 100).toFixed(1) + "%";
-
-        if (type === 'sleepy' && val >= ASLEEP_THRESHOLD) isAsleep = true;
     }
     handleDrowsinessLogic(isAsleep);
 }
@@ -1610,6 +1678,7 @@ function updateSessionStats() {
 function stopSystem() {
     isRunning = false;
     isModelLoaded = false;
+    resetFatigueStreaks();
     stopRecording();
     stopLocationTracking();
     stopImpactDetection();
