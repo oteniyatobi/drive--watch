@@ -1,21 +1,36 @@
-// [DEPLOYMENT REFRESH] Triggering new build to pick up Vercel environment variables.
 // ==========================================
 // DRIVERWATCH - VERCEL SERVERLESS FUNCTION
-// POST /api/send-alert
-// Sends a WhatsApp message via Twilio to the
-// driver's emergency contact. Credentials
-// are kept server-side and never exposed.
+// POST /api/send-alert — Twilio WhatsApp (+ optional voice on impact)
+// alertType: "drowsy" | "impact" | "speeding"
 // ==========================================
 
 const twilio = require('twilio');
 
+function normalizeAlertType(body) {
+    const raw = (body.alertType || '').toLowerCase();
+    if (raw === 'impact' || raw === 'collision') return 'impact';
+    if (raw === 'speeding' || raw === 'speed') return 'speeding';
+    if (raw === 'drowsy' || raw === 'unresponsive' || raw === 'fatigue') return 'drowsy';
+    if (body.isImpact === true) return 'impact';
+    return 'drowsy';
+}
+
 module.exports = async (req, res) => {
-    // Only allow POST
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { to, driverName, mapsLink, time, isImpact } = req.body;
+    const {
+        to,
+        driverName,
+        mapsLink,
+        time,
+        isImpact,
+        speedKmh,
+        speedLimitKmh
+    } = req.body;
+
+    const alertType = normalizeAlertType(req.body);
 
     if (!to) {
         return res.status(400).json({ error: 'Missing emergency contact phone number.' });
@@ -34,26 +49,47 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: `Missing Vercel Environment Variables: ${missing.join(', ')}` });
     }
 
-    // Strip non-digits from phone number, add whatsapp: prefix
     const cleanPhone = to.replace(/\D/g, '');
     const toWhatsApp = `whatsapp:+${cleanPhone}`;
+    const who = driverName || 'The driver';
+    const when = time || new Date().toLocaleString();
+    const loc = mapsLink || 'Location unavailable';
+    const spd = speedKmh != null ? String(speedKmh) : null;
+    const lim = speedLimitKmh != null ? String(speedLimitKmh) : null;
 
-    const messageBody = isImpact
-        ? `🚨 *HIGH IMPACT ACCIDENT DETECTED* 🚨\n\n` +
-        `*DRIVER:* ${driverName || 'The Driver'}\n` +
-        `*STATUS:* Driver involved in a high-G collision.\n` +
-        `*TIME:* ${time || new Date().toLocaleTimeString()}\n\n` +
-        `📍 *LIVE LOCATION:*\n${mapsLink || 'Location unavailable'}\n\n` +
-        `Police and emergency contacts have been notified via voice.\n` +
-        `_This is an automated alert from DriverWatch Enterprise._`
+    let messageBody;
 
-        : `🚨 *DRIVERWATCH EMERGENCY ALERT* 🚨\n\n` +
-        `*DRIVER:* ${driverName || 'The Driver'}\n` +
-        `*STATUS:* Driver detected as UNRESPONSIVE by AI safety system.\n` +
-        `*TIME:* ${time || new Date().toLocaleTimeString()}\n\n` +
-        `📍 *LIVE LOCATION:*\n${mapsLink || 'Location unavailable'}\n\n` +
-        `Please call the driver immediately or contact emergency services.\n` +
-        `_This is an automated alert from DriverWatch Enterprise Safety System._`;
+    if (alertType === 'impact') {
+        messageBody =
+            `🚨 *DRIVERWATCH — POSSIBLE COLLISION / HIGH IMPACT* 🚨\n\n` +
+            `*Driver:* ${who}\n` +
+            `*Trigger:* Sudden acceleration / motion consistent with a crash (phone sensor).\n` +
+            `*Time:* ${when}\n\n` +
+            `📍 *Last known position (maps):*\n${loc}\n\n` +
+            `*Action:* Try to call the driver now. If no answer, contact emergency services and share this location.\n` +
+            `_Automated message from DriverWatch._`;
+    } else if (alertType === 'speeding') {
+        const speedLine = spd && lim
+            ? `Reported speed about *${spd} km/h* vs posted limit *${lim} km/h*.`
+            : `The vehicle may be over the posted speed limit for this road.`;
+        messageBody =
+            `⚠️ *DRIVERWATCH — SPEED ADVISORY* ⚠️\n\n` +
+            `*Driver:* ${who}\n` +
+            `${speedLine}\n` +
+            `*Time:* ${when}\n\n` +
+            `📍 *Approximate location:*\n${loc}\n\n` +
+            `This is not a crash alert. Please message or call the driver to slow down.\n` +
+            `_Automated message from DriverWatch._`;
+    } else {
+        messageBody =
+            `🚨 *DRIVERWATCH — DRIVER UNRESPONSIVE (AI / FATIGUE)* 🚨\n\n` +
+            `*Driver:* ${who}\n` +
+            `*Trigger:* Cabin camera indicates the driver may be drowsy or not responding; fatigued-driver workflow was triggered.\n` +
+            `*Time:* ${when}\n\n` +
+            `📍 *Last known position:*\n${loc}\n\n` +
+            `*Action:* Call the driver immediately. If they do not answer, consider contacting emergency services.\n` +
+            `_Automated message from DriverWatch._`;
+    }
 
     try {
         const client = twilio(accountSid, authToken);
@@ -63,22 +99,19 @@ module.exports = async (req, res) => {
             body: messageBody,
         });
 
-        console.log(`WhatsApp alert sent. SID: ${message.sid}`);
+        console.log(`WhatsApp alert sent (${alertType}). SID: ${message.sid}`);
 
-        if (isImpact) {
+        const doVoice = alertType === 'impact' || isImpact === true;
+        if (doVoice) {
             const twiml = new twilio.twiml.VoiceResponse();
             twiml.say(
-                `Emergency alert. This is an automated message from Driver Watch. ` +
-                `${driverName || 'Your contact'} has been involved in a high impact accident at ${time || new Date().toLocaleTimeString()}. ` +
-                `Please send immediate assistance to their location. Check your WhatsApp for GPS coordinates.`
+                `Driver Watch collision alert. ${who} may have been involved in a serious impact at ${when}. ` +
+                `Check your WhatsApp for a map link and try to reach them or emergency services.`
             );
 
-            // Clean police phone, fallback to emergency contact if no police env var
             const policeContact = process.env.TWILIO_POLICE_NUMBER || to;
             const cleanPolicePhone = policeContact.replace(/\D/g, '');
             const toPoliceVoice = `+${cleanPolicePhone}`;
-
-            // Clean 'from' number (assuming TWILIO_WHATSAPP_FROM is set like whatsapp:+123456789)
             const fromVoice = process.env.TWILIO_PHONE_NUMBER || from.replace('whatsapp:', '');
 
             try {
@@ -93,7 +126,7 @@ module.exports = async (req, res) => {
             }
         }
 
-        return res.status(200).json({ success: true, sid: message.sid });
+        return res.status(200).json({ success: true, sid: message.sid, alertType });
     } catch (err) {
         console.error('Twilio Error:', err);
         return res.status(500).json({ error: err.message });

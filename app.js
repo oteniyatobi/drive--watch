@@ -37,7 +37,19 @@ let currentSpeedLimit = null;
 let lastSpeedLimitCheck = 0;
 let isSpeedingAlertActive = false;
 let lastImpactTime = 0;
-const IMPACT_G_THRESHOLD = 4.5; // G-force threshold for a "crash"
+/** Linear acceleration (m/s²) — phones often expose this for real shocks; magnitude of gravity vector stays ~9.8 so old “total G” test failed. */
+const LINEAR_IMPACT_MS2 = 11;
+/** Sudden change in accelerationIncludingGravity between samples (m/s² delta) — fallback when linear accel is null */
+const JERK_IMPACT_MS2 = 18;
+let lastGravitySample = null;
+/** iOS 13+: set from Start click (same gesture as permission); null = non‑iOS or no API */
+let motionPermissionGranted = null;
+
+/** @type {'drowsy' | 'impact'} */
+let currentDispatchReason = 'drowsy';
+
+let lastSpeedingWhatsAppAt = 0;
+const SPEEDING_WHATSAPP_COOLDOWN_MS = 8 * 60 * 1000;
 /** @type {{ lat: number, lng: number, t: number } | null} */
 let lastSpeedSample = null;
 
@@ -317,8 +329,8 @@ auth.onAuthStateChanged(async (user) => {
                 if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
                 if (dispPhone) dispPhone.innerText = ec?.phone || '---';
             } else {
-                console.warn("User authenticated but profile document missing. Forcing onboarding...");
-                window.location.replace('login.html');
+                console.warn("User authenticated but profile document missing. Opening setup...");
+                window.location.replace('login.html?setup=1');
             }
         } catch (e) {
             console.error("Error loading user data from Firestore:", e);
@@ -336,7 +348,24 @@ setInterval(() => {
 }, 1000);
 
 // Bindings
-startBtn.addEventListener('click', init);
+function onStartClick() {
+    // iOS Safari: motion permission must be requested during a user gesture — not after async init()
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+            .then((state) => {
+                motionPermissionGranted = state === 'granted';
+            })
+            .catch(() => {
+                motionPermissionGranted = false;
+            })
+            .finally(() => init());
+    } else {
+        motionPermissionGranted = null;
+        init();
+    }
+}
+
+startBtn.addEventListener('click', onStartClick);
 stopBtn.addEventListener('click', stopSystem);
 dismissAlarmBtn.addEventListener('click', dismissAlarm);
 cancelEmergencyBtn.addEventListener('click', cancelEmergency);
@@ -370,12 +399,6 @@ if (clearLogBtn) clearLogBtn.addEventListener('click', (e) => {
 // ==========================================
 async function init() {
     isModelLoaded = false;
-    try {
-        await initDB();
-    } catch (e) {
-        console.warn("Media Vault storage unavailable:", e);
-        logEvent('Storage subsystem offline. Manual export required.', 't-warn');
-    }
     startBtn.disabled = true;
 
     // Unlock Audio Contexts
@@ -396,11 +419,20 @@ async function init() {
         } catch (e) { }
     }
 
-    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading Fleet Models...</div>';
+    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading AI model &amp; camera stack...</div>';
 
     try {
         logEvent('Initializing Dashcam and Driver Status Monitor...', 't-info');
-        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        const [dbR, loadedModel] = await Promise.all([
+            initDB().catch((e) => {
+                console.warn("Media Vault storage unavailable:", e);
+                logEvent('Storage subsystem offline. Manual export required.', 't-warn');
+                return null;
+            }),
+            tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json")
+        ]);
+        void dbR;
+        model = loadedModel;
         isModelLoaded = true;
         maxPredictions = model.getTotalClasses();
 
@@ -640,6 +672,7 @@ function dismissAlarm(isAuto = false) {
 function triggerEmergency(isImpact = false) {
     if (isEmergencyActive) return;
     isEmergencyActive = true;
+    currentDispatchReason = isImpact ? 'impact' : 'drowsy';
 
     if (alarmOverlay) alarmOverlay.classList.add('hidden');
     if (emergencyOverlay) emergencyOverlay.classList.remove('hidden');
@@ -735,13 +768,16 @@ async function startRealDispatch(isImpact = false) {
 
         if (contactPhone) {
             try {
-                logEvent(`WHATSAPP: Sending automated alert to ${contactName}...`, 't-info');
+                logEvent(`WHATSAPP: Sending ${isImpact ? 'impact' : 'drowsy'} alert to ${contactName}...`, 't-info');
                 const payload = {
                     to: contactPhone,
                     driverName: driverName,
                     mapsLink: mapsLink,
-                    time: new Date().toLocaleTimeString(),
-                    isImpact: isImpact // Added for accident workflow
+                    time: new Date().toLocaleString(),
+                    alertType: isImpact ? 'impact' : 'drowsy',
+                    isImpact: !!isImpact,
+                    speedKmh: currentSpeed,
+                    speedLimitKmh: currentSpeedLimit
                 };
 
                 const response = await fetch('/api/send-alert', {
@@ -897,6 +933,46 @@ async function checkSpeedLimit(lat, lon) {
     }
 }
 
+async function notifySpeedingContactOnce() {
+    const now = Date.now();
+    if (now - lastSpeedingWhatsAppAt < SPEEDING_WHATSAPP_COOLDOWN_MS) return;
+    const phone = currentUserData?.emergencyContact?.phone;
+    if (!phone) {
+        logEvent('SPEED ALERT: No emergency contact phone — WhatsApp not sent.', 't-warn');
+        return;
+    }
+    lastSpeedingWhatsAppAt = now;
+    const driverName = currentUserData?.driverName || 'The driver';
+    const mapsLink = currentGeoPosition
+        ? `https://maps.google.com/?q=${currentGeoPosition.lat},${currentGeoPosition.lng}`
+        : 'Location unavailable';
+    try {
+        logEvent('WHATSAPP: Sending speeding advisory to emergency contact...', 't-info');
+        const response = await fetch('/api/send-alert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to: phone,
+                driverName,
+                mapsLink,
+                time: new Date().toLocaleString(),
+                alertType: 'speeding',
+                isImpact: false,
+                speedKmh: currentSpeed,
+                speedLimitKmh: currentSpeedLimit
+            })
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+            logEvent('WHATSAPP: Speeding advisory sent.', 't-succ');
+        } else {
+            logEvent(`WHATSAPP: Speeding advisory failed — ${result.error || 'error'}`, 't-warn');
+        }
+    } catch (err) {
+        logEvent(`WHATSAPP: Speeding advisory network error — ${err.message}`, 't-warn');
+    }
+}
+
 function evaluateSpeeding() {
     if (currentSpeedLimit == null || !Number.isFinite(currentSpeedLimit)) return;
 
@@ -905,10 +981,9 @@ function evaluateSpeeding() {
         if (!isSpeedingAlertActive) {
             logEvent(`SPEED WARNING: Exceeding ${currentSpeedLimit} km/h limit!`, 't-warn');
             isSpeedingAlertActive = true;
-            // Immediate beep
             startHDSpeedingBeep();
-            // Voice Alarm
             triggerSpeedingAlarm();
+            void notifySpeedingContactOnce().catch(() => {});
         }
         // Periodic warning look
         const limitEl = document.getElementById('metric-box-limit');
@@ -926,7 +1001,8 @@ function triggerSpeedingAlarm() {
         synth.resume(); // Ensure engine is awake
 
         const limitLabel = currentSpeedLimit ? `${currentSpeedLimit} kilometres per hour` : 'this area';
-        const msg = `Warning. You have exceeded the speed limit of ${limitLabel}. Please reduce your speed immediately.`;
+        const spd = currentSpeed ? `${currentSpeed} kilometres per hour` : 'an elevated speed';
+        const msg = `Speed alert. You are travelling at about ${spd}. The posted limit here is ${limitLabel}. Slow down now. Your emergency contact may be notified if this continues.`;
 
         const speedingUtterance = new SpeechSynthesisUtterance(msg);
         speedingUtterance.rate = 1.0;
@@ -955,23 +1031,15 @@ function startImpactDetection() {
         return;
     }
 
-    // iOS 13+ requires explicit permission from the user
+    // iOS: permission was requested in onStartClick (user gesture); here we only attach the listener
     if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission()
-            .then(permissionState => {
-                if (permissionState === 'granted') {
-                    window.addEventListener('devicemotion', handleMotion, true);
-                    logEvent('G-Force monitoring active (iOS). Impact detection armed.', 't-info');
-                } else {
-                    logEvent('WARN: iOS motion permission denied. Impact detection disabled.', 't-warn');
-                }
-            })
-            .catch(err => {
-                console.error('Motion permission error:', err);
-                logEvent('WARN: Could not request iOS motion permission.', 't-warn');
-            });
+        if (motionPermissionGranted === true) {
+            window.addEventListener('devicemotion', handleMotion, true);
+            logEvent('G-Force monitoring active (iOS). Impact detection armed.', 't-info');
+        } else {
+            logEvent('WARN: iOS motion permission denied. Impact detection disabled.', 't-warn');
+        }
     } else {
-        // Android, desktop, or older iOS — no permission prompt needed
         window.addEventListener('devicemotion', handleMotion, true);
         logEvent('G-Force monitoring active. Impact detection armed.', 't-info');
     }
@@ -984,24 +1052,34 @@ function stopImpactDetection() {
 function handleMotion(event) {
     if (!isRunning || isEmergencyActive) return;
 
-    const acc = event.accelerationIncludingGravity;
-    if (!acc) return;
+    const linear = event.acceleration;
+    let suddenShock = false;
 
-    // Calculate total G-force (Resultant Vector)
-    const gSum = Math.sqrt(acc.x ** 2 + acc.y ** 2 + acc.z ** 2) / 9.81;
-
-    // Detect sudden impact
-    if (gSum > IMPACT_G_THRESHOLD) {
-        const now = Date.now();
-        // Debounce to avoid multiple triggers for the same event
-        if (now - lastImpactTime < 5000) return;
-        lastImpactTime = now;
-
-        logEvent(`CRITICAL: Impact detected! Intensity: ${gSum.toFixed(1)}G`, 't-crit');
-
-        // Immediate escalation with impact flag
-        triggerEmergency(true);
+    if (linear && linear.x != null && linear.y != null && linear.z != null) {
+        const mag = Math.sqrt(linear.x * linear.x + linear.y * linear.y + linear.z * linear.z);
+        if (mag >= LINEAR_IMPACT_MS2) suddenShock = true;
     }
+
+    const g = event.accelerationIncludingGravity;
+    if (!suddenShock && g && g.x != null && lastGravitySample) {
+        const dx = g.x - lastGravitySample.x;
+        const dy = g.y - lastGravitySample.y;
+        const dz = g.z - lastGravitySample.z;
+        const delta = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (delta >= JERK_IMPACT_MS2) suddenShock = true;
+    }
+    if (g && g.x != null) {
+        lastGravitySample = { x: g.x, y: g.y, z: g.z };
+    }
+
+    if (!suddenShock) return;
+
+    const now = Date.now();
+    if (now - lastImpactTime < 5000) return;
+    lastImpactTime = now;
+
+    logEvent('CRITICAL: Sharp motion / possible collision detected (accelerometer).', 't-crit');
+    triggerEmergency(true);
 }
 
 function getBestVoice() {
@@ -1025,21 +1103,19 @@ function playDispatcherVoice() {
         // CRITICAL: No cancel() - it can block the engine on some Windows builds
         synth.resume();
 
-        let driverContext = "Driver";
-        let contactContext = "their emergency contact";
-        let locationContext = "transmitting location";
+        const driverContext = currentUserData?.driverName || 'The driver';
+        const contactContext = currentUserData?.emergencyContact?.name || 'the emergency contact';
+        const locationContext = currentGeoPosition
+            ? `Last known GPS latitude ${currentGeoPosition.lat}, longitude ${currentGeoPosition.lng}`
+            : 'Location is still being acquired';
+        const timeContext = new Date().toLocaleString();
 
-        if (currentUserData) {
-            driverContext = currentUserData.driverName || driverContext;
-            const ecName = currentUserData.emergencyContact?.name;
-            if (ecName) contactContext = ecName;
+        let msg;
+        if (currentDispatchReason === 'impact') {
+            msg = `Driver Watch collision alert. Possible crash or severe impact involving ${driverContext}. ${locationContext} at ${timeContext}. A WhatsApp alert with a map link is being sent to ${contactContext}. If you can hear this, check on the driver and contact emergency services.`;
+        } else {
+            msg = `Driver Watch medical style alert. ${driverContext} appears unresponsive or severely drowsy behind the wheel. ${locationContext} at ${timeContext}. A message is being sent to ${contactContext} with location details. Pull over safely if this is you.`;
         }
-
-        if (currentGeoPosition) {
-            locationContext = `GPS coordinates are latitude ${currentGeoPosition.lat}, longitude ${currentGeoPosition.lng}`;
-        }
-
-        const msg = `Critical alert from Driver Watch. ${driverContext} is unresponsive. ${locationContext}. Dispatching local emergency services and contacting ${contactContext} immediately. Operator, please pull over.`;
 
         dispatchUtterance = new SpeechSynthesisUtterance(msg);
         dispatchUtterance.rate = 1.0;
@@ -1200,6 +1276,15 @@ async function saveVideoToCloud(id, blob, type) {
     }
 }
 
+function vaultSortMillis(v) {
+    if (v._sortKey != null) return v._sortKey;
+    const t = v.timestamp;
+    if (t && typeof t.toMillis === 'function') return t.toMillis();
+    if (t && typeof t.seconds === 'number') return t.seconds * 1000 + ((t.nanoseconds || 0) / 1e6);
+    const n = new Date(v.readableTime || v.timestamp || 0).getTime();
+    return Number.isNaN(n) ? 0 : n;
+}
+
 async function loadMediaVault() {
     const vaultContainer = document.getElementById('vault-list');
     if (!vaultContainer) return;
@@ -1214,22 +1299,41 @@ async function loadMediaVault() {
             const transaction = localDb.transaction([STORE_NAME], 'readonly');
             transaction.objectStore(STORE_NAME).getAll().onsuccess = (e) => resolve(e.target.result);
         });
-        allVideos = [...localVideos.map(v => ({ ...v, isLocal: true }))];
+        allVideos = localVideos.map(v => ({
+            ...v,
+            isLocal: true,
+            _sortKey: new Date(v.timestamp).getTime() || 0
+        }));
     }
 
-    // 2. Fetch Cloud Videos (Firestore)
+    // 2. Fetch Cloud Videos (Firestore) — ordered query, or fallback if index/old docs missing fields
     if (user) {
+        const col = db.collection('users').doc(user.uid).collection('recordings');
         try {
-            const snapshot = await db.collection('users').doc(user.uid).collection('recordings').orderBy('timestamp', 'desc').get();
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                // Avoid duplicates if already in local
-                if (!allVideos.find(v => v.id === data.id)) {
-                    allVideos.push({ ...data, isLocal: false, timestamp: data.readableTime });
-                }
+            const snapshot = await col.orderBy('timestamp', 'desc').limit(300).get();
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                if (allVideos.find(v => v.id === data.id)) return;
+                const sk = (data.timestamp?.toMillis?.() ?? (data.timestamp?.seconds ? data.timestamp.seconds * 1000 : null) ?? new Date(data.readableTime || 0).getTime()) || 0;
+                const label = data.readableTime || (data.timestamp && data.timestamp.toDate ? data.timestamp.toDate().toLocaleString() : null) || '—';
+                allVideos.push({ ...data, isLocal: false, timestamp: label, _sortKey: sk });
             });
-        } catch (e) {
-            console.warn("Could not fetch cloud vault:", e);
+        } catch (e1) {
+            console.warn('Vault ordered query failed, trying broad fetch:', e1);
+            try {
+                const snapshot = await col.limit(500).get();
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    if (allVideos.find(v => v.id === data.id)) return;
+                    const sk = (data.timestamp?.toMillis?.() ?? (data.timestamp?.seconds ? data.timestamp.seconds * 1000 : null) ?? new Date(data.readableTime || 0).getTime()) || 0;
+                    const label = data.readableTime || (data.timestamp && data.timestamp.toDate ? data.timestamp.toDate().toLocaleString() : '—');
+                    allVideos.push({ ...data, isLocal: false, timestamp: label, _sortKey: sk });
+                });
+                logEvent('VAULT: Loaded recordings (fallback query). If some are missing, check Firestore index.', 't-warn');
+            } catch (e2) {
+                console.warn('Could not fetch cloud vault:', e2);
+                logEvent('VAULT: Could not load cloud recordings. Check login and network.', 't-warn');
+            }
         }
     }
 
@@ -1238,8 +1342,7 @@ async function loadMediaVault() {
         return;
     }
 
-    // Sort by most recent
-    allVideos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    allVideos.sort((a, b) => vaultSortMillis(b) - vaultSortMillis(a));
 
     vaultContainer.innerHTML = '';
     allVideos.forEach(video => {
@@ -1345,6 +1448,7 @@ function stopSystem() {
     stopLocationTracking();
     stopImpactDetection();
     lastSpeedSample = null;
+    lastGravitySample = null;
     clearInterval(sessionInterval);
     if (webcam) webcam.stop();
     if (keepWarmInterval) clearInterval(keepWarmInterval);

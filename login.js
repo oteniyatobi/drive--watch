@@ -62,32 +62,37 @@ const phoneInputOnb = window.intlTelInput(document.querySelector("#onbContactPho
 let confirmationResult = null;
 let currentAuthenticatedUser = null;
 
-// Auth State Observer - The Brains of the Operation
+function showOnboardingUI(user) {
+    currentAuthenticatedUser = user;
+    const toggle = document.querySelector('.auth-toggle');
+    if (toggle) toggle.style.display = 'none';
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'none';
+    document.getElementById('verify-code-view').style.display = 'none';
+    if (user.displayName) document.getElementById('onbDriverName').value = user.displayName;
+    if (user.phoneNumber) phoneInputOnb.setNumber(user.phoneNumber);
+    document.getElementById('onboarding-view').style.display = 'block';
+}
+
+/* On login.html only: send people with a profile straight to the app (no multi-second wait on this page). */
 auth.onAuthStateChanged(async (user) => {
-    if (user) {
-        currentAuthenticatedUser = user;
-        // Check if user has completed onboarding in Firestore
-        try {
-            const doc = await db.collection('users').doc(user.uid).get();
-            if (doc.exists) {
-                // User is fully set up, redirect to dashboard
-                window.location.href = '/';
-            } else {
-                // User is authenticated via Google/Phone but needs to provide Emergency Contact
-                document.getElementById('login-view').style.display = 'none';
-                document.getElementById('register-view').style.display = 'none';
-                document.getElementById('verify-code-view').style.display = 'none';
-                document.querySelector('.auth-toggle').style.display = 'none';
+    if (!user) {
+        currentAuthenticatedUser = null;
+        return;
+    }
+    currentAuthenticatedUser = user;
+    const onLogin = /login\.html/i.test(window.location.pathname || '');
+    if (!onLogin) return;
 
-                // Pre-fill name if coming from Google
-                if (user.displayName) document.getElementById('onbDriverName').value = user.displayName;
-                if (user.phoneNumber) phoneInputOnb.setNumber(user.phoneNumber);
-
-                document.getElementById('onboarding-view').style.display = 'block';
-            }
-        } catch (e) {
-            console.error("Error fetching user data", e);
+    try {
+        const doc = await db.collection('users').doc(user.uid).get();
+        if (doc.exists) {
+            window.location.replace('/');
+            return;
         }
+        showOnboardingUI(user);
+    } catch (e) {
+        console.error('Error fetching user data', e);
     }
 });
 
@@ -99,7 +104,7 @@ document.getElementById('google-signin-btn').addEventListener('click', async () 
 
     try {
         await auth.signInWithPopup(provider);
-        // onAuthStateChanged takes over
+        window.location.replace('/');
     } catch (err) {
         errorDiv.textContent = err.message;
         errorDiv.style.display = 'block';
@@ -206,7 +211,7 @@ document.getElementById('verify-code-view').addEventListener('submit', async (e)
 
     try {
         await confirmationResult.confirm(code);
-        // onAuthStateChanged takes over to handle missing profile check
+        window.location.replace('/');
     } catch (err) {
         errorDiv.textContent = 'Invalid verification code. Please try again.';
         errorDiv.style.display = 'block';
