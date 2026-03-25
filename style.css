@@ -39,6 +39,11 @@
     padding: 0;
 }
 
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
 body {
     background-color: var(--sys-bg);
     color: var(--acc-primary);
@@ -55,20 +60,38 @@ body {
 
 .top-nav {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: wrap;
     align-items: center;
+    gap: 0.65rem 1rem;
     padding-bottom: 1.5rem;
     border-bottom: 1px solid var(--sys-border);
     margin-bottom: 1.5rem;
 }
 
-.nav-left {
+/* Header cells: logo | status chips | clock+logout (no wrapper — works on all Android WebViews) */
+.nav-cell-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.nav-cell-tags {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.nav-cell-actions {
     display: flex;
     align-items: center;
     gap: 1rem;
-    min-width: 0;
-    flex: 1 1 auto;
-    overflow: hidden;
+    flex: 0 0 auto;
+    margin-left: auto;
 }
 
 .logo {
@@ -1086,32 +1109,8 @@ button:disabled {
     background: var(--sys-border);
 }
 
-/* --- MOBILE / TABLET: one readable column, no cramped “tablet row” --- */
+/* --- Phones & small tablets (≤768px): one column, sticky header, same layout everywhere --- */
 @media (max-width: 768px) {
-    .assessment-container {
-        flex-direction: column;
-        align-items: stretch;
-        justify-content: center;
-        text-align: left;
-        padding: 1rem 0 1rem 1rem;
-    }
-
-    .assessment-value {
-        font-size: 1.4rem;
-    }
-
-    .dashboard-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-    }
-
-    .panel-primary,
-    .data-module {
-        padding: 1.1rem;
-    }
-}
-
-@media (max-width: 600px) {
     body {
         padding: max(0.5rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
     }
@@ -1154,8 +1153,8 @@ button:disabled {
     }
 
     /*
-     * Header: flat grid (no negative margins — avoids misaligned edges).
-     * nav-left uses display:contents so logo + tags participate in one grid.
+     * Phone header: CSS grid with real DOM children (no display:contents).
+     * Same structure on iPhone, Samsung, etc. — avoids WebView layout bugs.
      */
     .top-nav {
         display: grid;
@@ -1175,44 +1174,38 @@ button:disabled {
         box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
     }
 
-    .top-nav .nav-left {
-        display: contents;
-    }
-
-    .top-nav .logo {
+    .top-nav .nav-cell-logo {
         grid-column: 1;
         grid-row: 1;
-        justify-content: flex-start;
         min-width: 0;
+        flex: unset;
     }
 
-    .top-nav .logo h1 {
-        font-size: clamp(0.68rem, 3vw, 0.82rem);
+    .top-nav .nav-cell-logo h1 {
+        font-size: clamp(0.68rem, 3.2vw, 0.82rem);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
-    .top-nav .header-tags-container {
+    .top-nav .nav-cell-tags {
         grid-column: 1 / -1;
         grid-row: 2;
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 0.35rem;
         min-width: 0;
+        flex: unset;
+        margin: 0;
+        overflow: visible;
     }
 
-    .top-nav .nav-right {
+    .top-nav .nav-cell-actions {
         grid-column: 2 / 4;
         grid-row: 1;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
+        margin-left: 0;
         justify-content: flex-end;
         gap: 0.4rem;
-        width: auto;
-        padding: 0;
-        border: none;
         flex-wrap: nowrap;
         min-width: 0;
     }
@@ -1496,32 +1489,15 @@ button:disabled {
     }
 }
 
+/* Same grid structure as other phones — only slightly smaller type if needed */
 @media (max-width: 380px) {
-    .metrics-grid {
-        grid-template-columns: 1fr;
-    }
-
     .logo h1 {
-        font-size: 0.8rem;
+        font-size: 0.76rem;
     }
 
     .system-tag {
-        font-size: 0.65rem;
-        padding: 0.4rem;
-    }
-
-    .nav-right {
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .nav-right .btn-logout {
-        width: 100%;
-        text-align: center;
-    }
-
-    .header-tags-container {
-        grid-template-columns: 1fr;
+        font-size: 0.58rem;
+        padding: 0.38rem 0.3rem;
     }
 
     .modal-content {

@@ -27,21 +27,19 @@
 
     <!-- Top Navigation -->
     <header class="top-nav">
-        <div class="nav-left">
-            <div class="logo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" class="logo-svg">
-                    <rect x="2" y="2" width="20" height="20" rx="4" stroke="currentColor" stroke-width="2" />
-                    <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
-                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" />
-                </svg>
-                <h1>DRIVERWATCH <span class="version">v6.0.0</span></h1>
-            </div>
-            <div class="header-tags-container">
-                <div class="system-tag" id="nav-system-tag">SYS: <span class="status-indicator">STANDBY</span></div>
-                <div class="system-tag" id="nav-user-tag">OP: <span id="nav-operator-name">UNKNOWN</span></div>
-            </div>
+        <div class="logo nav-cell-logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" class="logo-svg">
+                <rect x="2" y="2" width="20" height="20" rx="4" stroke="currentColor" stroke-width="2" />
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
+                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <h1>DRIVERWATCH <span class="version">v6.0.0</span></h1>
         </div>
-        <div class="nav-right">
+        <div class="header-tags-container nav-cell-tags">
+            <div class="system-tag" id="nav-system-tag">SYS: <span class="status-indicator">STANDBY</span></div>
+            <div class="system-tag" id="nav-user-tag">OP: <span id="nav-operator-name">UNKNOWN</span></div>
+        </div>
+        <div class="nav-right nav-cell-actions">
             <div class="clock nav-clock-el" id="nav-clock">00:00:00</div>
             <button type="button" onclick="logout()" class="export-btn btn-logout">LOGOUT</button>
         </div>
@@ -276,13 +274,13 @@
         }
         (function mobileFoldSecondaryPanels() {
             function collapseOnNarrow() {
-                if (!window.matchMedia('(max-width: 600px)').matches) return;
+                if (!window.matchMedia('(max-width: 768px)').matches) return;
                 document.querySelectorAll('details.mobile-collapse[open]').forEach(function (el) {
                     el.removeAttribute('open');
                 });
             }
             function expandOnWide() {
-                if (!window.matchMedia('(min-width: 601px)').matches) return;
+                if (!window.matchMedia('(min-width: 769px)').matches) return;
                 document.querySelectorAll('details.mobile-collapse').forEach(function (el) {
                     el.setAttribute('open', '');
                 });
