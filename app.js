@@ -1387,7 +1387,7 @@ function saveVideoToDB(id, blob, type) {
         });
     }
 
-    // 2. Save to Cloud (Firebase Storage + Firestore)
+    // 2. Save to Cloud (Supabase Storage + Firestore metadata)
     saveVideoToCloud(id, blob, type, referenceId);
 
     loadMediaVault();
@@ -1395,16 +1395,45 @@ function saveVideoToDB(id, blob, type) {
 
 async function saveVideoToCloud(id, blob, type, referenceId) {
     const user = auth.currentUser;
-    if (!user) return;
+    if (!user) {
+        logEvent('CLOUD: Auth user missing — upload skipped.', 't-warn');
+        return;
+    }
 
     const refId = referenceId || makeReferenceId(id);
+    if (!blob || typeof blob.size !== 'number' || blob.size <= 0) {
+        logEvent('CLOUD: Empty video blob — upload skipped.', 't-warn');
+        return;
+    }
     try {
-        logEvent(`CLOUD: Uploading ${type} to secure vault...`, 't-info');
-        const storagePath = `users/${user.uid}/videos/${id}.webm`;
-        const fileRef = storage.ref().child(storagePath);
-        const snapshot = await fileRef.put(blob);
-        const downloadURL = await snapshot.ref.getDownloadURL();
+        logEvent(`CLOUD: Uploading ${type} to secure vault (Supabase)...`, 't-info');
+        const idToken = await user.getIdToken();
+        const presignRes = await fetch('/api/recording-presign', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${idToken}`
+            },
+            body: JSON.stringify({ id, contentType: blob.type || 'video/webm' })
+        });
+        const presign = await readJsonResponse(presignRes);
+        if (!presignRes.ok) {
+            throw new Error(presign.error || 'Could not get upload URL — check Vercel env (Supabase + Firebase Admin).');
+        }
 
+        const putRes = await fetch(presign.signedUrl, {
+            method: 'PUT',
+            body: blob,
+            headers: {
+                'Content-Type': blob.type || 'video/webm'
+            }
+        });
+        if (!putRes.ok) {
+            const t = await putRes.text().catch(() => '');
+            throw new Error(`Upload failed (${putRes.status}) ${t.slice(0, 160)}`);
+        }
+
+        const storagePath = presign.path;
         const driverName = currentUserData?.driverName || user.displayName || 'Driver';
 
         await db.collection('users').doc(user.uid).collection('recordings').doc(id).set({
@@ -1412,18 +1441,20 @@ async function saveVideoToCloud(id, blob, type, referenceId) {
             referenceId: refId,
             userId: user.uid,
             driverName: driverName,
-            url: downloadURL,
+            url: '',
             storagePath: storagePath,
+            storageBackend: 'supabase',
             type: type,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             readableTime: new Date().toLocaleString()
         });
 
         logEvent(`CLOUD: ✅ ${type} saved to your vault (ref ${refId}).`, 't-succ');
-        loadMediaVault(); // Refresh to show cloud icon
+        loadMediaVault();
     } catch (e) {
-        console.error("Cloud Upload Failed:", e);
-        logEvent(`CLOUD: ⚠️ Sync failed — ${e.message}`, 't-warn');
+        console.error('Cloud Upload Failed:', e);
+        const msg = e && e.message ? e.message : (e ? String(e) : 'Unknown error');
+        logEvent(`CLOUD: ⚠️ Sync failed — ${msg}`, 't-warn');
     }
 }
 
@@ -1583,7 +1614,26 @@ async function playVideo(id, isLocal, cloudUrl) {
     if (!url && auth.currentUser) {
         try {
             const doc = await db.collection('users').doc(auth.currentUser.uid).collection('recordings').doc(id).get();
-            url = doc.exists ? doc.data().url : null;
+            if (doc.exists) {
+                const d = doc.data();
+                if (d.storageBackend === 'supabase' && d.storagePath) {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const r = await fetch('/api/recording-play-url', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${idToken}`
+                        },
+                        body: JSON.stringify({ path: d.storagePath })
+                    });
+                    const j = await readJsonResponse(r);
+                    if (r.ok && j.signedUrl) {
+                        url = j.signedUrl;
+                    }
+                } else if (d.url) {
+                    url = d.url;
+                }
+            }
         } catch (e) {
             console.warn('Vault: could not load download URL', e);
         }
@@ -1636,8 +1686,24 @@ function deleteVideo(id, isLocal) {
     const deleteCloud = async () => {
         if (!user) return;
         try {
-            await db.collection('users').doc(user.uid).collection('recordings').doc(id).delete();
-            await storage.ref().child(`users/${user.uid}/videos/${id}.webm`).delete().catch(() => {});
+            const docRef = db.collection('users').doc(user.uid).collection('recordings').doc(id);
+            const snap = await docRef.get();
+            const data = snap.exists ? snap.data() : null;
+            await docRef.delete();
+
+            if (data && data.storageBackend === 'supabase' && data.storagePath) {
+                const idToken = await user.getIdToken();
+                await fetch('/api/recording-delete-storage', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({ path: data.storagePath })
+                }).catch(() => {});
+            } else {
+                await storage.ref().child(`users/${user.uid}/videos/${id}.webm`).delete().catch(() => {});
+            }
             logEvent('CLOUD: Record removed from fleet vault.', 't-info');
         } catch (e) {
             console.warn('Cloud vault delete:', e);

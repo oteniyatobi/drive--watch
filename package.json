@@ -3,6 +3,8 @@
     "version": "1.0.0",
     "description": "DriverWatch Enterprise Safety System",
     "dependencies": {
+        "@supabase/supabase-js": "^2.49.1",
+        "firebase-admin": "^12.7.0",
         "twilio": "^5.0.0"
     }
 }
