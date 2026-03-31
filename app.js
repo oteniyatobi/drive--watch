@@ -694,9 +694,13 @@ async function init() {
         fpsMetrics = { frames: 0, lastTime: Date.now() };
 
         sessionInterval = setInterval(updateSessionStats, 1000);
+        predictionIntervalHandle = setInterval(predictLoop, PREDICTION_INTERVAL_MS);
 
         stopBtn.disabled = false;
-        navSystemTag.innerHTML = `SYS: <span class="status-indicator ACTIVE">ACTIVE</span>`;
+        if (navSystemTag) {
+            navSystemTag.className = 'sys-badge ACTIVE';
+            navSystemTag.innerText = 'SYS: ACTIVE';
+        }
         cameraBadge.innerText = 'ONLINE';
         cameraBadge.className = 'cam-badge ONLINE';
         liveIndicator.classList.add('active');
@@ -764,13 +768,6 @@ async function loop() {
             fpsMetrics.frames = 0;
             fpsMetrics.lastTime = now;
         }
-
-        // Logic/AI Throttling: only predict every X ms
-        // MUST update timer AFTER predict to guarantee a rest period for the CPU!
-        if (isModelLoaded && (now - lastPredictionTime >= PREDICTION_INTERVAL_MS)) {
-            await predict();
-            lastPredictionTime = Date.now(); // The critical fix
-        }
     } catch (e) {
         console.error("Loop Error:", e);
         logEvent(`SYS_EXCEPTION: ${e.message}`, 't-crit');
@@ -780,6 +777,21 @@ async function loop() {
     if (isRunning) {
         window.requestAnimationFrame(loop);
     }
+}
+
+let predictionIntervalHandle = null;
+
+async function predictLoop() {
+    if (!isRunning || isEmergencyActive || !isModelLoaded) return;
+    if (window._isPredicting) return; // Prevent overlapping inferences
+
+    window._isPredicting = true;
+    try {
+        await predict();
+    } catch (e) {
+        console.error("Predict logic error:", e);
+    }
+    window._isPredicting = false;
 }
 
 async function predict() {

@@ -332,25 +332,6 @@
       }
     }
 
-    /* ── nav-system-tag sync ─────────────────── */
-    /* app.js sets innerHTML like: SYS: <span class="status-indicator ACTIVE">ACTIVE</span>
-       We convert that to a simple text + CSS class change on the badge */
-    const _origInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-    const sysTag = document.getElementById('nav-system-tag');
-    if (sysTag) {
-      const observer = new MutationObserver(() => {
-        const txt = sysTag.textContent || '';
-        if (txt.includes('ACTIVE')) {
-          sysTag.className = 'sys-badge ACTIVE';
-          sysTag.textContent = 'SYS: ACTIVE';
-        } else {
-          sysTag.className = 'sys-badge';
-          sysTag.textContent = 'SYS: STANDBY';
-        }
-      });
-      observer.observe(sysTag, { childList: true, subtree: true, characterData: true });
-    }
-
     /* ── Service Worker ──────────────────────── */
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
