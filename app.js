@@ -548,6 +548,15 @@ async function preWarmModel() {
             model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
             isModelLoaded = true;
             maxPredictions = model.getTotalClasses();
+            
+            // WARM-UP: Compiling WebGL shaders takes 2-5 seconds on laptops and causes "Page Unresponsive".
+            // Doing it here prevents the freeze from happening when the user clicks "Start".
+            try {
+                const dummy = document.createElement('canvas');
+                dummy.width = 224; dummy.height = 224;
+                await model.predict(dummy);
+            } catch (e) { }
+
             logEvent('AI Core pre-loaded and ready.', 't-info');
         } catch (e) {
             console.warn('Model pre-load failed:', e);
@@ -617,13 +626,11 @@ async function init() {
         }
 
         // Play and show canvas immediately while still in the user-gesture window
-        // (iOS/Android expire the gesture context after ~1s — model loading takes longer)
         await webcam.play();
         const wrapper = document.getElementById("webcam-wrapper");
         if (wrapper && !wrapper.contains(webcam.canvas)) {
             wrapper.appendChild(webcam.canvas);
         }
-        window.requestAnimationFrame(loop);
 
         // Load model and init DB in parallel (camera is already live)
         if (!isModelLoaded) {
@@ -678,6 +685,8 @@ async function init() {
 
         resetFatigueStreaks();
         isRunning = true;
+        window.requestAnimationFrame(loop); // <-- CRITICAL: Start the loop only after isRunning is true!
+        
         sessionStartTime = Date.now();
         totalAlerts = 0;
         totalDrowsySeconds = 0;
