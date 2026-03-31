@@ -8,6 +8,8 @@ let model, webcam, maxPredictions;
 let isModelLoaded = false;
 let modelLoadPromise = null; // Singleton promise to prevent race conditions
 let isRunning = false;
+let lastPredictionTime = 0;
+const PREDICTION_INTERVAL_MS = 100; // 10 check per second is plenty for safety & fast for CPU
 let emergencyTimer = null;
 let countdownInterval = null;
 let simulatedCallInterval = null;
@@ -737,10 +739,14 @@ async function init() {
 
 async function loop() {
     if (!isRunning || isEmergencyActive) return;
+    
     try {
         webcam.update();
         fpsMetrics.frames++;
+        
         const now = Date.now();
+        
+        // UI/FPS update
         if (now - fpsMetrics.lastTime >= 1000) {
             if (footerDataStream) {
                 footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: ${webcam.canvas.width}x${webcam.canvas.height}`;
@@ -748,14 +754,21 @@ async function loop() {
             fpsMetrics.frames = 0;
             fpsMetrics.lastTime = now;
         }
-        if (isModelLoaded) {
+
+        // Logic/AI Throttling: only predict every X ms
+        if (isModelLoaded && (now - lastPredictionTime >= PREDICTION_INTERVAL_MS)) {
+            lastPredictionTime = now;
             await predict();
         }
     } catch (e) {
         console.error("Loop Error:", e);
         logEvent(`SYS_EXCEPTION: ${e.message}`, 't-crit');
     }
-    window.requestAnimationFrame(loop);
+    
+    // Continue loop
+    if (isRunning) {
+        window.requestAnimationFrame(loop);
+    }
 }
 
 async function predict() {
