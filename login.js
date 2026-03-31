@@ -103,8 +103,15 @@ document.getElementById('google-signin-btn').addEventListener('click', async () 
     errorDiv.style.display = 'none';
 
     try {
-        await auth.signInWithPopup(provider);
-        window.location.replace('/');
+        const result = await auth.signInWithPopup(provider);
+        const user = result.user;
+        // Check if they already have a profile; if not, show onboarding
+        const doc = await db.collection('users').doc(user.uid).get();
+        if (doc.exists) {
+            window.location.replace('/');
+        } else {
+            showOnboardingUI(user);
+        }
     } catch (err) {
         errorDiv.textContent = err.message;
         errorDiv.style.display = 'block';
@@ -210,8 +217,15 @@ document.getElementById('verify-code-view').addEventListener('submit', async (e)
     btn.disabled = true; btn.textContent = 'VERIFYING...';
 
     try {
-        await confirmationResult.confirm(code);
-        window.location.replace('/');
+        const result = await confirmationResult.confirm(code);
+        const user = result.user;
+        // Check if they already have a profile; if not, show onboarding
+        const doc = await db.collection('users').doc(user.uid).get();
+        if (doc.exists) {
+            window.location.replace('/');
+        } else {
+            showOnboardingUI(user);
+        }
     } catch (err) {
         errorDiv.textContent = 'Invalid verification code. Please try again.';
         errorDiv.style.display = 'block';
@@ -254,13 +268,14 @@ document.getElementById('onboarding-view').addEventListener('submit', async (e) 
         async (position) => {
             btn.textContent = 'PROVISIONING ACCOUNT...';
             try {
-                // Insert to Firestore
+                // Insert to Firestore (includes location consent for compliance record)
                 await db.collection('users').doc(currentAuthenticatedUser.uid).set({
                     driverName: driverName,
                     emergencyContact: {
                         name: contactName,
                         phone: contactPhone
                     },
+                    locationConsentGranted: locationConsent,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
 

@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "communityHotspots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lat",  "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -1,308 +1,365 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>DriverWatch Enterprise</title>
-    <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="style.css">
-    <!-- Using a technical, geometric font for a professional look -->
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@300;400;500;600;700&display=swap"
-        rel="stylesheet">
-    <!-- Firebase SDK Compat -->
-    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-storage-compat.js"></script>
-    <script src="firebase-config.js"></script>
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#09090b">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>DriverWatch Enterprise</title>
+  <meta name="description" content="AI-powered fleet safety — real-time fatigue detection, dashcam, and emergency dispatch.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="style.css">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <!-- Firebase SDK Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
 </head>
-
 <body>
 
-    <!-- Top Navigation -->
-    <header class="top-nav">
-        <div class="logo nav-cell-logo">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" class="logo-svg">
-                <rect x="2" y="2" width="20" height="20" rx="4" stroke="currentColor" stroke-width="2" />
-                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
-                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" />
+  <!-- ── TOP BAR ─────────────────────────────── -->
+  <header class="top-bar">
+    <div class="top-bar-logo">
+      <div class="logo-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <rect x="2" y="2" width="20" height="20" rx="4"/>
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+        </svg>
+      </div>
+      <span class="logo-text">DRIVERWATCH <span class="version">v7.0</span></span>
+    </div>
+
+    <div id="nav-system-tag" class="sys-badge">SYS: STANDBY</div>
+
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="nav-clock" id="nav-clock">00:00:00</span>
+      <button type="button" class="btn-icon" onclick="logout()" id="logout-btn" title="Logout">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- hidden operator tag (referenced by app.js) -->
+  <div style="display:none" id="nav-user-tag">OP: <span id="nav-operator-name">UNKNOWN</span></div>
+
+  <!-- ── MAIN ─────────────────────────────────── -->
+  <main class="app-main">
+
+    <!-- ══ MONITOR TAB ══════════════════════════ -->
+    <section id="tab-monitor" class="tab-panel active">
+
+      <!-- Camera Hero -->
+      <div class="camera-hero" id="camera-container">
+        <div id="webcam-wrapper">
+          <div class="standby-screen" id="startup-message">
+            <svg class="standby-icon" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
             </svg>
-            <h1>DRIVERWATCH <span class="version">v6.0.0</span></h1>
+            <div class="standby-text">AWAITING INITIALIZATION</div>
+          </div>
         </div>
-        <div class="header-tags-container nav-cell-tags">
-            <div class="system-tag" id="nav-system-tag">SYS: <span class="status-indicator">STANDBY</span></div>
-            <div class="system-tag" id="nav-user-tag">OP: <span id="nav-operator-name">UNKNOWN</span></div>
+
+        <!-- HUD overlay (pointer-events:none so clicks reach canvas) -->
+        <div class="camera-overlay">
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+
+          <div class="cam-badge" id="camera-badge">INACTIVE</div>
+          <div class="live-dot" id="live-indicator"></div>
+
+          <div class="camera-bottom-hud">
+            <div class="rec-indicator">
+              <div class="rec-pulse" id="recording-dot"></div>
+              <span>REC</span>
+            </div>
+            <div class="fps-badge" id="footer-data-stream">FPS: --</div>
+          </div>
         </div>
-        <div class="nav-right nav-cell-actions">
-            <div class="clock nav-clock-el" id="nav-clock">00:00:00</div>
-            <button type="button" onclick="logout()" class="export-btn btn-logout">LOGOUT</button>
+      </div>
+
+      <!-- Driver Status Card -->
+      <div class="status-sheet">
+        <div class="status-card" id="main-status-card">
+          <div class="status-dot" id="header-status-dot"></div>
+          <div class="status-text">
+            <div class="status-title" id="big-status-label">NOT DETECTED</div>
+            <div class="status-sub"   id="big-status-sub">Awaiting video feed…</div>
+          </div>
         </div>
-    </header>
+      </div>
 
-    <main class="dashboard-grid">
-
-        <!-- Left Column: Vision & Primary Controls -->
-        <section class="panel-primary">
-
-            <div class="panel-header">
-                <h2>CABIN CAMERA FEED</h2>
-                <div class="panel-badge" id="camera-badge">INACTIVE</div>
-            </div>
-
-            <div class="camera-wrapper" id="camera-container">
-                <div class="crosshair top-left"></div>
-                <div class="crosshair top-right"></div>
-                <div class="crosshair bottom-left"></div>
-                <div class="crosshair bottom-right"></div>
-
-                <div id="webcam-wrapper">
-                    <div class="standby-screen" id="startup-message">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="1">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                        <div class="standby-text">AWAITING INITIALIZATION</div>
-                    </div>
-                </div>
-
-                <div class="camera-footer">
-                    <div class="recording-status">
-                        <div id="recording-dot" class="rec-pulse"></div>
-                        <span>REC</span>
-                    </div>
-                    <div class="data-stream" id="footer-data-stream">FPS: -- | RES: 400x300</div>
-                    <div class="live-pulse" id="live-indicator"></div>
-                </div>
-            </div>
-
-            <div class="control-group">
-                <button id="start-btn" class="btn-primary">START MONITORING</button>
-                <button id="stop-btn" class="btn-secondary" disabled>END SESSION</button>
-            </div>
-
-        </section>
-
-        <!-- Right Column: Data & Logs -->
-        <section class="panel-secondary">
-
-            <!-- Core Assessment Node -->
-            <div class="data-module">
-                <div class="module-header">
-                    <h3>DRIVER STATUS</h3>
-                    <div class="status-dot" id="header-status-dot"></div>
-                </div>
-
-                <div class="assessment-container" id="main-status-card">
-                    <div class="assessment-value" id="big-status-label">NOT DETECTED</div>
-                    <div class="assessment-sub" id="big-status-sub">Awaiting video feed...</div>
-                </div>
-            </div>
-
-            <!-- Neural Network Output -->
-            <div class="data-module">
-                <div class="module-header">
-                    <h3>DRIVER STATUS MONITOR</h3>
-                    <span class="muted-tag">REAL-TIME</span>
-                </div>
-                <div class="nn-bars" id="label-container">
-                    <div class="empty-data">NO PREDICTION DATA</div>
-                </div>
-            </div>
-
-            <!-- Session Metrics -->
-            <div class="data-module">
-                <div class="module-header">
-                    <h3>SESSION METRICS</h3>
-                </div>
-                <div class="metrics-grid">
-                    <div class="metric-box">
-                        <div class="metric-label">UPTIME</div>
-                        <div class="metric-val" id="stat-uptime">00:00</div>
-                    </div>
-                    <div class="metric-box">
-                        <div class="metric-label">CURRENT SPEED</div>
-                        <div class="metric-val" id="stat-speed">0 km/h</div>
-                    </div>
-                    <div class="metric-box" id="metric-box-limit">
-                        <div class="metric-label">SPEED LIMIT</div>
-                        <div class="metric-val" id="stat-limit">---</div>
-                    </div>
-                    <div class="metric-box">
-                        <div class="metric-label">SYS ALERTS</div>
-                        <div class="metric-val" id="stat-alerts">00</div>
-                    </div>
-                    <!-- Moved Drowsy/Score to maintain grid balance -->
-                    <div class="metric-box">
-                        <div class="metric-label">DROWSY TIME</div>
-                        <div class="metric-val" id="stat-drowsy">0s</div>
-                    </div>
-                    <div class="metric-box">
-                        <div class="metric-label">ALERTNESS CQ</div>
-                        <div class="metric-val" id="stat-score">100.0%</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- System Log (Collapsible on Mobile) -->
-            <div class="data-module log-module">
-                <details class="mobile-collapse" open>
-                    <summary class="module-header mobile-summary-row">
-                        <h3>SYSTEM EVENT LOG</h3>
-                        <button type="button" class="export-btn btn-summary-action" id="clear-log-btn">CLEAR</button>
-                    </summary>
-                    <div class="terminal-container" id="activity-log">
-                        <div class="terminal-line">[SYS] Waiting for monitoring to begin...</div>
-                    </div>
-                </details>
-            </div>
-
-            <!-- Media Vault (Collapsible on Mobile) -->
-            <div class="data-module vault-module">
-                <details class="mobile-collapse" open>
-                    <summary class="module-header mobile-summary-row">
-                        <h3>MEDIA VAULT</h3>
-                        <button type="button" class="export-btn btn-summary-action" onclick="event.stopPropagation(); loadMediaVault();" title="Refresh Vault">REFRESH</button>
-                    </summary>
-                    <p class="vault-hint">Recordings are stored in your Firebase database (metadata) and cloud storage (video files). Search or copy a reference for insurance or fleet records.</p>
-                    <div class="vault-toolbar">
-                        <label class="sr-only" for="vault-search">Search recordings</label>
-                        <input type="search" id="vault-search" class="vault-search-input" placeholder="Search by reference, date, type, or name…" autocomplete="off" />
-                    </div>
-                    <div class="vault-container" id="vault-list">
-                        <div class="empty-data">INITIALIZING VAULT...</div>
-                    </div>
-                </details>
-            </div>
-
-        </section>
-    </main>
-
-    <!-- CRITICAL ALARM OVERLAY -->
-    <div id="alarm-overlay" class="overlay-modal hidden">
-        <div class="modal-bg danger-bg"></div>
-        <div class="modal-content danger-panel">
-            <div class="warning-header">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
-                    </path>
-                    <line x1="12" y1="9" x2="12" y2="13"></line>
-                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                </svg>
-                <span id="alarm-topic">CRITICAL FATIGUE DETECTED</span>
-            </div>
-
-            <h2 id="alarm-title" class="alert-massive">DRIVER UNRESPONSIVE</h2>
-
-            <div class="readout-box">
-                <div class="readout-row">
-                    <span class="readout-lbl">ACTION REQUIRED:</span>
-                    <span class="readout-val">WAKE UP OR PULL OVER</span>
-                </div>
-                <div class="readout-row">
-                    <span class="readout-lbl">EMERGENCY DISPATCH IN:</span>
-                    <span class="readout-val countdown-text"><span id="emergency-countdown">10</span> SECONDS</span>
-                </div>
-            </div>
-
-            <button id="dismiss-alarm" class="btn-override">I AM AWAKE (DISMISS ALARM)</button>
+      <!-- NN Prediction Bars -->
+      <div class="nn-section" id="label-container">
+        <!-- Populated by app.js -->
+        <div class="nn-row">
+          <div class="nn-label">—</div>
+          <div class="nn-track"><div class="nn-fill" style="width:0"></div></div>
+          <div class="nn-val">—</div>
         </div>
+      </div>
+
+      <!-- Bento Metrics (6 tiles, 3 columns) -->
+      <div class="bento-grid">
+        <div class="bento-card">
+          <span class="bento-label">UPTIME</span>
+          <span class="bento-val" id="stat-uptime">00:00</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">SPEED</span>
+          <span class="bento-val" id="stat-speed">0 km/h</span>
+        </div>
+        <div class="bento-card" id="metric-box-limit">
+          <span class="bento-label">LIMIT</span>
+          <span class="bento-val" id="stat-limit">---</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">ALERTS</span>
+          <span class="bento-val" id="stat-alerts">00</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">DROWSY</span>
+          <span class="bento-val" id="stat-drowsy">0s</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">ACQ</span>
+          <span class="bento-val" id="stat-score">100%</span>
+        </div>
+      </div>
+
+      <!-- CTA Buttons -->
+      <div class="cta-zone">
+        <button id="start-btn" class="btn-pill btn-start">START MONITORING</button>
+        <button id="stop-btn" class="btn-pill btn-stop" disabled>END SESSION</button>
+      </div>
+
+    </section><!-- /tab-monitor -->
+
+    <!-- ══ VAULT TAB ════════════════════════════ -->
+    <section id="tab-vault" class="tab-panel">
+      <div class="vault-panel">
+        <div class="panel-header-row">
+          <span class="panel-title">MEDIA VAULT</span>
+          <button class="btn-sm" onclick="loadMediaVault()" id="vault-refresh-btn">REFRESH</button>
+        </div>
+        <p class="vault-hint-text">Recordings stored in Firebase (metadata) and Supabase cloud storage. Search or copy a reference for insurance or fleet records.</p>
+        <label class="sr-only" for="vault-search">Search recordings</label>
+        <input type="search" id="vault-search" class="search-input" placeholder="Search by reference, date, type…" autocomplete="off">
+        <div id="vault-list">
+          <div class="empty-data">INITIALIZING VAULT…</div>
+        </div>
+      </div>
+    </section><!-- /tab-vault -->
+
+    <!-- ══ LOG TAB ══════════════════════════════ -->
+    <section id="tab-log" class="tab-panel">
+      <div class="log-panel">
+        <div class="panel-header-row">
+          <span class="panel-title">SYSTEM LOG</span>
+          <button class="btn-sm" id="clear-log-btn">CLEAR</button>
+        </div>
+        <div class="terminal-container" id="activity-log">
+          <div class="terminal-line">[SYS] Waiting for monitoring to begin…</div>
+        </div>
+      </div>
+    </section><!-- /tab-log -->
+
+    <!-- ══ MAP TAB ════════════════════════════════ -->
+    <section id="tab-map" class="tab-panel">
+      <div class="map-wrapper">
+        <div id="leaflet-map"></div>
+
+        <!-- Danger advisory toast (shown on proximity) -->
+        <div id="map-advisory" class="map-advisory hidden">
+          <div class="map-advisory-icon">⚠️</div>
+          <div>
+            <div class="map-advisory-title">DANGER ZONE AHEAD</div>
+            <div class="map-advisory-text" id="map-advisory-text">Known hazard — slow down.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Legend + status bar -->
+      <div class="map-bottom-bar">
+        <div class="map-status-bar" id="map-status-bar">Tap map to load hazard data</div>
+        <div class="map-legend">
+          <div class="map-legend-item"><span class="legend-dot" style="background:#ef4444"></span>Crash</div>
+          <div class="map-legend-item"><span class="legend-dot" style="background:#f59e0b"></span>Camera/Hazard</div>
+          <div class="map-legend-item"><span class="legend-dot" style="background:#6366f1"></span>Traffic</div>
+          <div class="map-legend-item"><span class="legend-dot" style="background:#60a5fa"></span>You</div>
+        </div>
+      </div>
+    </section><!-- /tab-map -->
+
+    <!-- ══ DESKTOP: right column wrapper ════════ -->
+    <!-- On mobile, tabs are switched. On desktop, vault + log sit side-by-side in this wrapper. -->
+
+  </main>
+
+  <!-- ── BOTTOM NAVIGATION ────────────────────── -->
+  <nav class="bottom-nav" aria-label="App navigation">
+    <button class="nav-tab active" id="nav-tab-monitor" onclick="switchTab('monitor')" aria-label="Monitor">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span class="nav-tab-label">MONITOR</span>
+    </button>
+    <button class="nav-tab" id="nav-tab-vault" onclick="switchTab('vault')" aria-label="Vault">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="3" y="3" width="18" height="18" rx="3"/>
+        <path d="M9 8h6M9 12h6M9 16h4"/>
+      </svg>
+      <span class="nav-tab-label">VAULT</span>
+    </button>
+    <button class="nav-tab" id="nav-tab-log" onclick="switchTab('log')" aria-label="System Log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      <span class="nav-tab-label">LOG</span>
+    </button>
+    <button class="nav-tab" id="nav-tab-map" onclick="switchTab('map')" aria-label="Route Advisor">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
+        <line x1="9" y1="3" x2="9" y2="18"/>
+        <line x1="15" y1="6" x2="15" y2="21"/>
+      </svg>
+      <span class="nav-tab-label">ROUTES</span>
+    </button>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════
+       OVERLAYS
+  ════════════════════════════════════════════ -->
+
+  <!-- ALARM -->
+  <div id="alarm-overlay" class="overlay-modal hidden">
+    <div class="modal-inner alarm-panel">
+      <div class="alarm-icon-ring">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <div class="alarm-topic-label" id="alarm-topic">CRITICAL FATIGUE DETECTED</div>
+      <div class="alarm-big-title"   id="alarm-title">DRIVER UNRESPONSIVE</div>
+      <div class="alarm-countdown-block">
+        <div class="alarm-countdown-lbl">EMERGENCY DISPATCH IN</div>
+        <div class="alarm-countdown-num" id="emergency-countdown">10</div>
+        <div class="alarm-countdown-lbl">SECONDS</div>
+      </div>
+      <button id="dismiss-alarm" class="btn-dismiss">I AM AWAKE — DISMISS ALARM</button>
     </div>
+  </div>
 
-    <!-- EMERGENCY DISPATCH OVERLAY -->
-    <div id="emergency-overlay" class="overlay-modal hidden">
-        <div class="modal-bg dispatch-bg"></div>
-        <div class="modal-content dispatch-panel">
-            <div class="warning-header dispatch-header">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path
-                        d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
-                    </path>
-                </svg>
-                <span id="emergency-topic">DISPATCH PROTOCOL INITIATED</span>
-            </div>
-
-            <div class="call-interface">
-                <div class="target-node">CALLING: FLEET DISPATCH & EMERGENCY CONTACT</div>
-                <div class="call-status" id="emergency-status-text">CONNECTING COMMUNICATION RELAYS...</div>
-
-                <div class="dispatch-meta-box">
-                    <div class="dispatch-meta-line">CONTACT 1: LOCAL DISPATCH (AUTOMATED 911 RELAY)</div>
-                    <div class="dispatch-meta-line">CONTACT 2: <span id="dispatch-contact-name">UNKNOWN</span> (<span id="dispatch-contact-phone">---</span>)</div>
-                    <div class="dispatch-meta-line dispatch-meta-loc">LOC: <span id="dispatch-location">ACQUIRING GPS...</span></div>
-                </div>
-
-                <div class="data-transfer">
-                    <div class="transfer-bar">
-                        <div class="transfer-fill" id="transfer-progress"></div>
-                    </div>
-                </div>
-
-                <div class="call-metrics">
-                    <span>CALL DURATION: <span id="call-timer">00:00</span></span>
-                    <span id="calling-dots">SIGNAL: <span style="color:var(--stat-active)">STRONG</span></span>
-                </div>
-            </div>
-
-            <button id="cancel-emergency" class="btn-abort">ABORT PROTOCOL (FALSE POSITIVE)</button>
+  <!-- EMERGENCY DISPATCH -->
+  <div id="emergency-overlay" class="overlay-modal hidden">
+    <div class="modal-inner dispatch-panel">
+      <div class="dispatch-hdr">
+        <div class="dispatch-icon-ring">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.83 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.75 1.1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+          </svg>
         </div>
-    </div>
-
-    <!-- MEDIA VAULT PLAYER MODAL -->
-    <div id="vault-modal" class="overlay-modal hidden">
-        <div class="modal-bg"></div>
-        <div class="modal-content vault-player-panel">
-            <div class="warning-header">
-                <span>VAULT PLAYBACK</span>
-                <button class="close-vault" onclick="closeVaultPlayer()">CLOSE</button>
-            </div>
-            <video id="vault-player" controls style="width:100%; aspect-ratio:16/9; background:#000;"></video>
+        <div>
+          <div class="dispatch-topic"  id="emergency-topic">DISPATCH PROTOCOL INITIATED</div>
+          <div class="dispatch-status" id="emergency-status-text">CONNECTING RELAYS…</div>
         </div>
-    </div>
+      </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-    <script src="app.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/service-worker.js')
-                    .then(reg => console.log('DriverWatch ServiceWorker Registered.'))
-                    .catch(err => console.log('ServiceWorker Registration Failed.', err));
-            });
+      <div class="dispatch-meta-box">
+        <div class="dispatch-meta-line">CONTACT 1: LOCAL DISPATCH (AUTO 911 RELAY)</div>
+        <div class="dispatch-meta-line">CONTACT 2: <span id="dispatch-contact-name">UNKNOWN</span> (<span id="dispatch-contact-phone">---</span>)</div>
+        <div class="dispatch-meta-line">LOCATION: <span id="dispatch-location">ACQUIRING GPS…</span></div>
+      </div>
+
+      <div class="progress-track">
+        <div class="transfer-fill" id="transfer-progress" style="width:0%"></div>
+      </div>
+
+      <div class="call-metrics">
+        <span>CALL DURATION: <span id="call-timer">00:00</span></span>
+        <span id="calling-dots">SIGNAL: <span class="online">STRONG</span></span>
+      </div>
+
+      <button id="cancel-emergency" class="btn-abort">ABORT PROTOCOL (FALSE POSITIVE)</button>
+    </div>
+  </div>
+
+  <!-- VAULT PLAYER -->
+  <div id="vault-modal" class="overlay-modal vault-modal-wrap hidden">
+    <div class="vault-player-panel">
+      <div class="vault-player-hdr">
+        <span>VAULT PLAYBACK</span>
+        <button class="btn-close-vault" onclick="closeVaultPlayer()">CLOSE</button>
+      </div>
+      <video id="vault-player" controls style="width:100%;aspect-ratio:16/9;background:#000;display:block;"></video>
+    </div>
+  </div>
+
+  <!-- ── SCRIPTS ───────────────────────────────── -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <script src="app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="map.js"></script>
+  <script>
+    /* ── Tab switcher ─────────────────────────── */
+    function switchTab(name) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+      const panel = document.getElementById('tab-' + name);
+      const btn   = document.getElementById('nav-tab-' + name);
+      if (panel) panel.classList.add('active');
+      if (btn)   btn.classList.add('active');
+      // Init map lazily on first open
+      if (name === 'map' && typeof onMapTabOpened === 'function') {
+        setTimeout(onMapTabOpened, 80);
+      }
+    }
+
+    /* ── nav-system-tag sync ─────────────────── */
+    /* app.js sets innerHTML like: SYS: <span class="status-indicator ACTIVE">ACTIVE</span>
+       We convert that to a simple text + CSS class change on the badge */
+    const _origInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    const sysTag = document.getElementById('nav-system-tag');
+    if (sysTag) {
+      const observer = new MutationObserver(() => {
+        const txt = sysTag.textContent || '';
+        if (txt.includes('ACTIVE')) {
+          sysTag.className = 'sys-badge ACTIVE';
+          sysTag.textContent = 'SYS: ACTIVE';
+        } else {
+          sysTag.className = 'sys-badge';
+          sysTag.textContent = 'SYS: STANDBY';
         }
-        (function mobileFoldSecondaryPanels() {
-            function collapseOnNarrow() {
-                if (!window.matchMedia('(max-width: 768px)').matches) return;
-                document.querySelectorAll('details.mobile-collapse[open]').forEach(function (el) {
-                    el.removeAttribute('open');
-                });
-            }
-            function expandOnWide() {
-                if (!window.matchMedia('(min-width: 769px)').matches) return;
-                document.querySelectorAll('details.mobile-collapse').forEach(function (el) {
-                    el.setAttribute('open', '');
-                });
-            }
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function () {
-                    collapseOnNarrow();
-                });
-            } else {
-                collapseOnNarrow();
-            }
-            window.addEventListener('resize', function () {
-                collapseOnNarrow();
-                expandOnWide();
-            });
-        })();
-    </script>
-</body>
+      });
+      observer.observe(sysTag, { childList: true, subtree: true, characterData: true });
+    }
 
+    /* ── Service Worker ──────────────────────── */
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+          .then(() => console.log('[SW] Registered'))
+          .catch(e => console.warn('[SW] Failed:', e));
+      });
+    }
+  </script>
+
+</body>
 </html>

@@ -1,11 +1,21 @@
-rules_version = '2';
-// Deploy in Firebase Console → Firestore → Rules, or: firebase deploy --only firestore:rules
-// Users may only read/write their own profile and subcollections (e.g. recordings metadata).
-
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Users can only read/write their own profile and subcollections
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // Community crash hotspots — anonymized coords, impact events only
+    // Any signed-in user can read (to see nearby hazards on the map)
+    // Any signed-in user can create (to contribute a new hotspot)
+    // Nobody can update or delete (immutable once written)
+    match /communityHotspots/{docId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['lat','lng','type','timestamp','appVersion'])
+                    && request.resource.data.type == 'impact';
+      allow update, delete: if false;
+    }
   }
 }
+

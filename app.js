@@ -50,6 +50,8 @@ let currentDispatchReason = 'drowsy';
 
 let lastSpeedingWhatsAppAt = 0;
 const SPEEDING_WHATSAPP_COOLDOWN_MS = 8 * 60 * 1000;
+let lastSpeedingVoiceAt = 0;
+const SPEEDING_VOICE_COOLDOWN_MS = 90 * 1000; // 90s between repeated TTS speeding warnings
 /** @type {{ lat: number, lng: number, t: number } | null} */
 let lastSpeedSample = null;
 
@@ -543,9 +545,9 @@ async function init() {
     if (synth) {
         synth.cancel();
         try {
-            // Prime the engine with a short word so TTS is allowed later (browser gesture requirement)
-            const prime = new SpeechSynthesisUtterance('Voice ready.');
-            prime.volume = 0.3; // High enough that the engine actually runs
+            // Prime the engine with a near-silent utterance so TTS is allowed later (browser gesture requirement)
+            const prime = new SpeechSynthesisUtterance(' ');
+            prime.volume = 0.001; // Inaudible — just unlocks the audio context
             prime.rate = 1.2;
             synth.speak(prime);
             logEvent('Voice engine unlocked and ready.', 't-info');
@@ -607,7 +609,7 @@ async function init() {
         stopBtn.disabled = false;
         navSystemTag.innerHTML = `SYS: <span class="status-indicator ACTIVE">ACTIVE</span>`;
         cameraBadge.innerText = 'ONLINE';
-        cameraBadge.className = 'panel-badge ONLINE';
+        cameraBadge.className = 'cam-badge ONLINE';
         liveIndicator.classList.add('active');
 
         setStatus('awake', 'DRIVER ALERT', 'Dashcam feed nominal. System actively monitoring.');
@@ -736,14 +738,14 @@ function handleDrowsinessLogic(isAsleep) {
 }
 
 function setStatus(stateCode, title, detail) {
-    if (isEmergencyActive && stateCode !== 'sleepy') return; // Don't downgrade status if emergency active
+    if (isEmergencyActive && stateCode !== 'sleepy') return;
 
-    if (cameraContainer) cameraContainer.className = `camera-wrapper ${stateCode}`;
+    if (cameraContainer) cameraContainer.className = `camera-hero ${stateCode}`;
     if (headerStatusDot) headerStatusDot.className = `status-dot ${stateCode}`;
-    if (mainStatusCard) mainStatusCard.className = `assessment-container ${stateCode}`;
+    if (mainStatusCard) mainStatusCard.className = `status-card ${stateCode}`;
     if (bigStatusLabel) {
         bigStatusLabel.innerText = title;
-        bigStatusLabel.className = `assessment-value ${stateCode}`;
+        bigStatusLabel.className = `status-title ${stateCode}`;
     }
     if (bigStatusSub) bigStatusSub.innerText = detail;
 }
@@ -821,6 +823,24 @@ function triggerEmergency(isImpact = false) {
 
     logEvent(isImpact ? 'CRITICAL: High-G event detected. Auto-dispatch active.' : 'ESCALATION: Real emergency dispatch initiated.', 't-crit');
     stopHDAudioAlarm();
+
+    // If impact, upload anonymized location to community hotspots
+    if (isImpact && currentGeoPosition) {
+        if (typeof uploadCommunityImpact === 'function') {
+            uploadCommunityImpact(currentGeoPosition.lat, currentGeoPosition.lng);
+        }
+    }
+
+    // Start the call timer ticking
+    let callSeconds = 0;
+    if (callTimer) callTimer.innerText = '00:00';
+    if (simulatedCallInterval) clearInterval(simulatedCallInterval);
+    simulatedCallInterval = setInterval(() => {
+        callSeconds++;
+        const mm = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+        const ss = String(callSeconds % 60).padStart(2, '0');
+        if (callTimer) callTimer.innerText = `${mm}:${ss}`;
+    }, 1000);
 
     // TTS as soon as the dispatch overlay is visible (not after async WhatsApp / GPS scan)
     initAudioContext();
@@ -1009,11 +1029,19 @@ function startLocationTracking() {
                 const dt = (now - lastSpeedSample.t) / 1000;
                 if (dt > 0.4 && dt < 90) {
                     const distKm = haversineKm(lastSpeedSample.lat, lastSpeedSample.lng, lat, lng);
-                    const kmh = (distKm / dt) * 3600;
-                    if (kmh >= 0 && kmh < 300) currentSpeed = Math.round(kmh);
+                    // Only use haversine speed if movement is > 3m (avoids GPS jitter at standstill)
+                    if (distKm > 0.003) {
+                        const kmh = (distKm / dt) * 3600;
+                        if (kmh >= 0 && kmh < 300) currentSpeed = Math.round(kmh);
+                    }
                 }
             }
             lastSpeedSample = { lat, lng, t: now };
+
+            // Route Advisor: update map position
+            if (typeof onGpsUpdateForMap === 'function') {
+                onGpsUpdateForMap(lat, lng);
+            }
 
             if (statSpeed) statSpeed.innerText = `${currentSpeed} km/h`;
 
@@ -1133,6 +1161,11 @@ function evaluateSpeeding() {
 }
 
 function triggerSpeedingAlarm() {
+    const now = Date.now();
+    // 90-second cooldown between TTS speeding warnings to prevent repeated announcements
+    if (now - lastSpeedingVoiceAt < SPEEDING_VOICE_COOLDOWN_MS) return;
+    lastSpeedingVoiceAt = now;
+
     try {
         if (!synth) return;
         synth.resume(); // Ensure engine is awake
@@ -1756,7 +1789,7 @@ function stopSystem() {
     if (liveIndicator) liveIndicator.classList.remove('active');
     if (cameraBadge) {
         cameraBadge.innerText = 'INACTIVE';
-        cameraBadge.className = 'panel-badge';
+        cameraBadge.className = 'cam-badge';
     }
     startBtn.disabled = false;
     stopBtn.disabled = true;
