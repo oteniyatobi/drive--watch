@@ -2,6 +2,9 @@
     "name": "driverwatch-enterprise",
     "version": "1.0.0",
     "description": "DriverWatch Enterprise Safety System",
+    "scripts": {
+        "start": "npx serve . --listen 3000"
+    },
     "dependencies": {
         "@supabase/supabase-js": "^2.49.1",
         "firebase-admin": "^12.7.0",

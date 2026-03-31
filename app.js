@@ -577,10 +577,22 @@ async function init() {
     try {
         logEvent('Initializing hardware subsystems...', 't-info');
 
+        // Pre-flight checks
+        if (typeof tmImage === 'undefined') {
+            throw Object.assign(new Error('AI library failed to load. Check your internet connection and reload.'), { name: 'ScriptLoadError' });
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            const proto = location.protocol;
+            if (proto === 'file:') {
+                throw Object.assign(new Error('Open this app via a local server (e.g. Live Server) or HTTPS — file:// blocks camera access.'), { name: 'ProtocolError' });
+            }
+            throw Object.assign(new Error('Camera API unavailable. Use Chrome/Edge over HTTPS.'), { name: 'UnsupportedError' });
+        }
+
         // 1. Initialize Webcam (Async - Start this first!)
         if (!webcam) {
             // width, height, flip
-            webcam = new tmImage.Webcam(400, 300, true); 
+            webcam = new tmImage.Webcam(400, 300, true);
         }
 
         // 2. Run Subsystems & Setup Camera with mobile-friendly constraints
@@ -656,12 +668,33 @@ async function init() {
 
     } catch (error) {
         isModelLoaded = false;
+        isRunning = false;
+        // Reset webcam so a retry creates a fresh instance
+        if (webcam) {
+            try { webcam.stop(); } catch (e) { /* ignore */ }
+            webcam = null;
+        }
         console.error("Critical Startup Error:", error);
+
+        let hint = '';
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            hint = 'Camera permission was denied. Click the camera icon in your browser address bar and allow access, then reload.';
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+            hint = 'No camera detected. Make sure a camera is connected and not in use by another app.';
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+            hint = 'Camera is in use by another app. Close other apps using the camera and reload.';
+        } else if (error.name === 'ScriptLoadError' || error.name === 'ProtocolError' || error.name === 'UnsupportedError') {
+            hint = error.message;
+        } else if (error.name === 'Error' && error.message.includes('model')) {
+            hint = 'AI model failed to load. Check your internet connection and reload.';
+        }
+
         if (startupMessage) {
             startupMessage.style.display = 'flex';
             startupMessage.innerHTML = `
                 <div class="standby-text" style="color:var(--danger); font-weight:bold;">CAMERA ERROR</div>
                 <div style="font-size:0.6rem; color:var(--text-muted); margin-top:8px; text-transform:uppercase;">${error.name || 'Error'}: ${error.message || 'Access Denied'}</div>
+                ${hint ? `<div style="font-size:0.55rem; color:var(--text-muted); margin-top:6px; text-transform:none; line-height:1.4;">${hint}</div>` : ''}
                 <button onclick="location.reload()" class="btn-sm" style="margin-top:12px; border-color:var(--danger); color:var(--danger);">RETRY SYSTEM</button>
             `;
         }
