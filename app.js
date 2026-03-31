@@ -550,10 +550,11 @@ async function preWarmModel() {
             maxPredictions = model.getTotalClasses();
             
             // WARM-UP: Compiling WebGL shaders takes 2-5 seconds on laptops and causes "Page Unresponsive".
-            // Doing it here prevents the freeze from happening when the user clicks "Start".
+            // CRITICAL FIX: The dimensions must exactly match the webcam (400x300) otherwise
+            // Tensorflow will re-compile all shaders silently during the first frame, freezing the app!
             try {
                 const dummy = document.createElement('canvas');
-                dummy.width = 224; dummy.height = 224;
+                dummy.width = 400; dummy.height = 300;
                 await model.predict(dummy);
             } catch (e) { }
 
