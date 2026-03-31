@@ -561,7 +561,6 @@ async function preWarmModel() {
 // INITIALIZATION SEQUENCE
 // ==========================================
 async function init() {
-    isModelLoaded = false;
     startBtn.disabled = true;
 
     // Unlock Audio Contexts
