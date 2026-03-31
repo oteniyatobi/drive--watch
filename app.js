@@ -631,28 +631,31 @@ async function init() {
                 startupMessage.style.display = 'flex';
             }
 
-            // Create a timeout promise to prevent infinite "Loading" state
+            // Create a 20s timeout promise
             const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('AI model took too long to load (Timeout). Please check your internet connection.')), 20000)
+                setTimeout(() => reject(new Error('AI model took too long to load (Timeout).')), 20000)
             );
 
             try {
                 await Promise.race([
                     Promise.all([
                         initDB().catch(e => { console.warn(e); return null; }),
-                        preWarmModel()
+                        preWarmModel() // This returns the existing promise if already loading
                     ]),
                     timeoutPromise
                 ]);
             } catch (e) {
-                throw e; // Caught by the parent catch block below
+                throw e; 
             }
-        } else {
-            initDB().catch(e => console.warn(e));
+        }
+
+        // Final verification with a tiny grace period for state sync
+        if (!isModelLoaded) {
+            await new Promise(r => setTimeout(r, 600)); // Final wait
         }
 
         if (!isModelLoaded) {
-            throw new Error('AI model could not be loaded. Check your network connection and try again.');
+            throw new Error('AI model not ready. Check your connection.');
         }
 
         if (startupMessage) startupMessage.style.display = 'none';

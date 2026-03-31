@@ -584,25 +584,70 @@ a { color: inherit; text-decoration: none; }
 /* ============================================================
    DESKTOP ( >= 768px )
    ============================================================ */
+/* ============================================================
+   DESKTOP ( >= 768px ) — PREMIUM DASHBOARD
+   ============================================================ */
 @media (min-width: 768px) {
-  body { padding-bottom: 0; }
-  .app-main { flex-direction: row; height: calc(100vh - var(--top-bar-h)); overflow: hidden; }
-  .bottom-nav { display: none; }
-
-  #tab-monitor {
-    flex: 0 0 420px; max-width: 420px;
-    border-right: 1px solid var(--border); overflow-y: auto; display: flex !important;
+  body { 
+    padding-bottom: 0; 
+    background: radial-gradient(circle at top right, #1a1a2e, #0a0a0f 70%); 
   }
-  .right-panels {
-    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  .app-main { 
+    flex-direction: column; 
+    align-items: center; 
+    max-width: 1200px; 
+    margin: 0 auto; 
+    padding: 32px 24px;
+    gap: 24px;
   }
-  #tab-vault, #tab-log { display: flex !important; flex: 1; overflow-y: auto; }
-  #tab-vault { border-bottom: 1px solid var(--border); }
+  
+  /* Show only active tab content correctly */
+  #tab-monitor, #tab-vault, #tab-log, #tab-map {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+  }
 
-  .camera-hero { aspect-ratio: 16/10; }
-  .bento-grid { grid-template-columns: repeat(3, 1fr); }
+  .camera-hero { 
+    aspect-ratio: 16/9; 
+    border-radius: var(--r-lg); 
+    border: 1px solid var(--border);
+    box-shadow: 0 32px 64px rgba(0,0,0,0.6);
+  }
+
+  .status-sheet { 
+    background: none; 
+    border: none; 
+    padding: 24px 0 0 0; 
+  }
+
+  /* Wide Bento for Desktop */
+  .bento-grid { 
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 16px; 
+    background: none; 
+    border: none; 
+    margin-top: 16px;
+  }
+  .bento-card {
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 18px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .bento-val { font-size: 1.4rem; }
+
+  .cta-zone {
+    background: none; border: none; padding: 24px 0; gap: 16px;
+  }
+  
+  /* Modal centering */
   .overlay-modal { align-items: center; }
-  .overlay-modal .modal-inner { max-width: 480px; }
+  .modal-inner { max-width: 480px; }
+
+  /* Desktop Map should be taller */
+  .map-wrapper { height: 700px; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--border); }
 }
 
 /* ============================================================
