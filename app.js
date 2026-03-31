@@ -595,23 +595,35 @@ async function init() {
             webcam = new tmImage.Webcam(400, 300, true);
         }
 
-        // 2. Run Subsystems & Setup Camera with mobile-friendly constraints
-        const [dbR, _] = await Promise.all([
-            initDB().catch(e => { console.warn(e); return null; }),
-            webcam.setup({ facingMode: 'user' }) // Explicitly request front camera
-        ]);
+        // 2. Setup camera (requests permission)
+        await webcam.setup({ facingMode: 'user' });
 
-        // 4. Force mobile video behavior (crucial for iOS/Android Chrome)
+        // Force mobile video behavior (crucial for iOS/Android Chrome)
         if (webcam.webcam) {
             webcam.webcam.setAttribute('playsinline', true);
             webcam.webcam.setAttribute('muted', true);
             webcam.webcam.muted = true;
         }
 
-        // 3. Ensure model is actually loaded (it might still be downloading from preWarm)
+        // Play and show canvas immediately while still in the user-gesture window
+        // (iOS/Android expire the gesture context after ~1s — model loading takes longer)
+        await webcam.play();
+        const wrapper = document.getElementById("webcam-wrapper");
+        if (wrapper && !wrapper.contains(webcam.canvas)) {
+            wrapper.appendChild(webcam.canvas);
+        }
+        window.requestAnimationFrame(loop);
+
+        // Load model and init DB in parallel (camera is already live)
         if (!isModelLoaded) {
-            if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Finalizing AI Brain...</div>';
-            await preWarmModel();
+            if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading AI brain...</div>';
+            startupMessage.style.display = 'flex';
+            const [dbR] = await Promise.all([
+                initDB().catch(e => { console.warn(e); return null; }),
+                preWarmModel()
+            ]);
+        } else {
+            initDB().catch(e => console.warn(e));
         }
 
         if (!isModelLoaded) {
@@ -619,13 +631,6 @@ async function init() {
         }
 
         if (startupMessage) startupMessage.style.display = 'none';
-        await webcam.play();
-        window.requestAnimationFrame(loop);
-
-        const wrapper = document.getElementById("webcam-wrapper");
-        if (wrapper && !wrapper.contains(webcam.canvas)) {
-            wrapper.appendChild(webcam.canvas);
-        }
 
         const labelContainer = document.getElementById("label-container");
         labelContainer.innerHTML = '';
