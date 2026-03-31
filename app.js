@@ -6,6 +6,7 @@ const MODEL_URL = "./model/";
 
 let model, webcam, maxPredictions;
 let isModelLoaded = false;
+let modelLoadPromise = null; // Singleton promise to prevent race conditions
 let isRunning = false;
 let emergencyTimer = null;
 let countdownInterval = null;
@@ -536,15 +537,24 @@ if (vaultSearch) {
 // BACKGROUND PRE-LOADING
 // ==========================================
 async function preWarmModel() {
-    try {
-        if (isModelLoaded) return;
-        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
-        isModelLoaded = true;
-        maxPredictions = model.getTotalClasses();
-        logEvent('AI Core pre-loaded and ready.', 't-info');
-    } catch (e) {
-        console.warn('Model pre-load failed:', e);
-    }
+    if (modelLoadPromise) return modelLoadPromise;
+
+    modelLoadPromise = (async () => {
+        try {
+            if (isModelLoaded) return;
+            logEvent('AI: Downloading neural weights...', 't-info');
+            model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+            isModelLoaded = true;
+            maxPredictions = model.getTotalClasses();
+            logEvent('AI Core pre-loaded and ready.', 't-info');
+        } catch (e) {
+            console.warn('Model pre-load failed:', e);
+            modelLoadPromise = null; // Allow retry
+            throw e;
+        }
+    })();
+
+    return modelLoadPromise;
 }
 
 // ==========================================
@@ -616,12 +626,27 @@ async function init() {
 
         // Load model and init DB in parallel (camera is already live)
         if (!isModelLoaded) {
-            if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading AI brain...</div>';
-            startupMessage.style.display = 'flex';
-            const [dbR] = await Promise.all([
-                initDB().catch(e => { console.warn(e); return null; }),
-                preWarmModel()
-            ]);
+            if (startupMessage) {
+                startupMessage.innerHTML = '<div class="standby-text">Loading AI brain...</div>';
+                startupMessage.style.display = 'flex';
+            }
+
+            // Create a timeout promise to prevent infinite "Loading" state
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('AI model took too long to load (Timeout). Please check your internet connection.')), 20000)
+            );
+
+            try {
+                await Promise.race([
+                    Promise.all([
+                        initDB().catch(e => { console.warn(e); return null; }),
+                        preWarmModel()
+                    ]),
+                    timeoutPromise
+                ]);
+            } catch (e) {
+                throw e; // Caught by the parent catch block below
+            }
         } else {
             initDB().catch(e => console.warn(e));
         }
