@@ -602,6 +602,10 @@ async function init() {
             await preWarmModel();
         }
 
+        if (!isModelLoaded) {
+            throw new Error('AI model could not be loaded. Check your network connection and try again.');
+        }
+
         if (startupMessage) startupMessage.style.display = 'none';
         await webcam.play();
         window.requestAnimationFrame(loop);
@@ -667,7 +671,7 @@ async function init() {
 }
 
 async function loop() {
-    if (!isRunning || !isModelLoaded || isEmergencyActive) return;
+    if (!isRunning || isEmergencyActive) return;
     try {
         webcam.update();
         fpsMetrics.frames++;
@@ -679,7 +683,9 @@ async function loop() {
             fpsMetrics.frames = 0;
             fpsMetrics.lastTime = now;
         }
-        await predict();
+        if (isModelLoaded) {
+            await predict();
+        }
     } catch (e) {
         console.error("Loop Error:", e);
         logEvent(`SYS_EXCEPTION: ${e.message}`, 't-crit');
