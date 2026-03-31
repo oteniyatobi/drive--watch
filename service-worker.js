@@ -11,6 +11,7 @@ const ASSETS = [
     '/index.html',
     '/style.css',
     '/app.js',
+    '/map.js',
     '/firebase-config.js',
     '/favicon.png',
     '/manifest.json'

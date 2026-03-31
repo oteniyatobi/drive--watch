@@ -458,6 +458,9 @@ auth.onAuthStateChanged(async (user) => {
                 if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
                 if (dispPhone) dispPhone.innerText = ec?.phone || '---';
                 attachVaultFirestoreListener();
+
+                // Trigger model pre-load for faster startup
+                preWarmModel();
             } else {
                 console.warn("User authenticated but profile document missing. Opening setup...");
                 window.location.replace('login.html?setup=1');
@@ -530,6 +533,21 @@ if (vaultSearch) {
 }
 
 // ==========================================
+// BACKGROUND PRE-LOADING
+// ==========================================
+async function preWarmModel() {
+    try {
+        if (isModelLoaded) return;
+        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        isModelLoaded = true;
+        maxPredictions = model.getTotalClasses();
+        logEvent('AI Core pre-loaded and ready.', 't-info');
+    } catch (e) {
+        console.warn('Model pre-load failed:', e);
+    }
+}
+
+// ==========================================
 // INITIALIZATION SEQUENCE
 // ==========================================
 async function init() {
@@ -554,33 +572,36 @@ async function init() {
         } catch (e) { }
     }
 
-    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Loading AI model &amp; camera stack...</div>';
+    if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Waking up camera hardware...</div>';
 
     try {
-        logEvent('Initializing Dashcam and Driver Status Monitor...', 't-info');
-        const [dbR, loadedModel] = await Promise.all([
-            initDB().catch((e) => {
-                console.warn("Media Vault storage unavailable:", e);
-                logEvent('Storage subsystem offline. Manual export required.', 't-warn');
-                return null;
-            }),
-            tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json")
+        logEvent('Initializing hardware subsystems...', 't-info');
+
+        // 1. Initialize Webcam (Async - Start this first!)
+        if (!webcam) {
+            webcam = new tmImage.Webcam(400, 300, true); // width, height, flip
+        }
+
+        // 2. Run Database and Model Readiness in parallel with camera setup
+        const [dbR, cameraReady] = await Promise.all([
+            initDB().catch(e => { console.warn(e); return null; }),
+            webcam.setup() // This is the slow part that needs to start ASAP
         ]);
-        void dbR;
-        model = loadedModel;
-        isModelLoaded = true;
-        maxPredictions = model.getTotalClasses();
 
-        webcam = new tmImage.Webcam(400, 300, true);
-
-        if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Connecting to Camera...</div>';
-        await webcam.setup();
+        // 3. Ensure model is actually loaded (it might still be downloading from preWarm)
+        if (!isModelLoaded) {
+            if (startupMessage) startupMessage.innerHTML = '<div class="standby-text">Finalizing AI Brain...</div>';
+            await preWarmModel();
+        }
 
         if (startupMessage) startupMessage.style.display = 'none';
         await webcam.play();
         window.requestAnimationFrame(loop);
 
-        document.getElementById("webcam-wrapper").appendChild(webcam.canvas);
+        const wrapper = document.getElementById("webcam-wrapper");
+        if (wrapper && !wrapper.contains(webcam.canvas)) {
+            wrapper.appendChild(webcam.canvas);
+        }
 
         const labelContainer = document.getElementById("label-container");
         labelContainer.innerHTML = '';
@@ -815,7 +836,7 @@ function triggerEmergency(isImpact = false) {
     const topic = document.getElementById('emergency-topic');
     if (isImpact) {
         if (topic) topic.innerText = 'IMPACT DISPATCH PROTOCOL';
-        setStatus('sleepy', 'IMPACT DETECTED', 'Critical high-G event. Fleet response in progress.');
+        setStatus('impact', 'IMPACT DETECTED', 'Critical high-G event. Fleet response in progress.');
     } else {
         if (topic) topic.innerText = 'DISPATCH PROTOCOL INITIATED';
         setStatus('sleepy', 'DISPATCH CALLED', 'Fleet emergency protocols in progress.');
