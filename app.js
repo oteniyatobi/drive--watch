@@ -602,6 +602,22 @@ async function init() {
         if (typeof tmImage === 'undefined') {
             throw Object.assign(new Error('AI library failed to load. Check your internet connection and reload.'), { name: 'ScriptLoadError' });
         }
+
+        // 1. Initialize Bare-Metal Video Element
+        if (!webcam) {
+            webcam = document.createElement('video');
+            webcam.width = 400;
+            webcam.height = 300;
+            webcam.autoplay = true;
+            webcam.playsInline = true;
+            webcam.muted = true;
+            
+            // Create the canvas that TM model expects to read from
+            webcamCanvas = document.createElement('canvas');
+            webcamCanvas.width = 400;
+            webcamCanvas.height = 300;
+            webcamCtx = webcamCanvas.getContext('2d');
+        }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             const proto = location.protocol;
             if (proto === 'file:') {
@@ -610,27 +626,25 @@ async function init() {
             throw Object.assign(new Error('Camera API unavailable. Use Chrome/Edge over HTTPS.'), { name: 'UnsupportedError' });
         }
 
-        // 1. Initialize Webcam (Async - Start this first!)
-        if (!webcam) {
-            // width, height, flip
-            webcam = new tmImage.Webcam(400, 300, true);
-        }
+        // 2. Request Camera Hardware
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 400 }, height: { ideal: 300 } },
+            audio: false
+        });
+        webcam.srcObject = stream;
+        
+        // Wait for video stream to start flowing
+        await new Promise((resolve) => {
+            webcam.onloadedmetadata = () => {
+                webcam.play();
+                resolve();
+            };
+        });
 
-        // 2. Setup camera (requests permission)
-        await webcam.setup({ facingMode: 'user' });
-
-        // Force mobile video behavior (crucial for iOS/Android Chrome)
-        if (webcam.webcam) {
-            webcam.webcam.setAttribute('playsinline', true);
-            webcam.webcam.setAttribute('muted', true);
-            webcam.webcam.muted = true;
-        }
-
-        // Play and show canvas immediately while still in the user-gesture window
-        await webcam.play();
+        // 3. Inject canvas into UI
         const wrapper = document.getElementById("webcam-wrapper");
-        if (wrapper && !wrapper.contains(webcam.canvas)) {
-            wrapper.appendChild(webcam.canvas);
+        if (wrapper && !wrapper.contains(webcamCanvas)) {
+            wrapper.appendChild(webcamCanvas);
         }
 
         // Load model and init DB in parallel (camera is already live)
@@ -717,10 +731,10 @@ async function init() {
     } catch (error) {
         isModelLoaded = false;
         isRunning = false;
-        // Reset webcam so a retry creates a fresh instance
-        if (webcam) {
-            try { webcam.stop(); } catch (e) { /* ignore */ }
-            webcam = null;
+        // Kill active streams on failure
+        if (webcam && webcam.srcObject) {
+            webcam.srcObject.getTracks().forEach(t => t.stop());
+            webcam.srcObject = null;
         }
         console.error("Critical Startup Error:", error);
 
@@ -755,7 +769,14 @@ async function loop() {
     if (!isRunning || isEmergencyActive) return;
     
     try {
-        webcam.update();
+        // Native mirror draw loop
+        if (webcam.readyState >= 2) { // HAVE_CURRENT_DATA
+            // Flip horiz mentally: translate(width, 0) scale(-1, 1)
+            webcamCtx.save();
+            webcamCtx.scale(-1, 1);
+            webcamCtx.drawImage(webcam, -400, 0, 400, 300);
+            webcamCtx.restore();
+        }
         fpsMetrics.frames++;
         
         const now = Date.now();
@@ -763,7 +784,7 @@ async function loop() {
         // UI/FPS update
         if (now - fpsMetrics.lastTime >= 1000) {
             if (footerDataStream) {
-                footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: ${webcam.canvas.width}x${webcam.canvas.height}`;
+                footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: 400x300`;
             }
             fpsMetrics.frames = 0;
             fpsMetrics.lastTime = now;
@@ -795,7 +816,7 @@ async function predictLoop() {
 }
 
 async function predict() {
-    const rawPrediction = await model.predict(webcam.canvas);
+    const rawPrediction = await model.predict(webcamCanvas);
     const prediction = getSmoothedPredictions(rawPrediction);
     const { awake, sleepy, neutral } = getClassProbabilities(prediction);
     const rawFatigue = isRawFatigueFrame(sleepy, awake, neutral);
@@ -1498,8 +1519,8 @@ function cancelEmergency() {
 }
 
 function startRecording() {
-    if (!webcam.canvas) return;
-    const stream = webcam.canvas.captureStream(30);
+    if (!webcamCanvas) return;
+    const stream = webcamCanvas.captureStream(30);
     recordedChunks = [];
     try {
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
