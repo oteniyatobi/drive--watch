@@ -766,9 +766,10 @@ async function loop() {
         }
 
         // Logic/AI Throttling: only predict every X ms
+        // MUST update timer AFTER predict to guarantee a rest period for the CPU!
         if (isModelLoaded && (now - lastPredictionTime >= PREDICTION_INTERVAL_MS)) {
-            lastPredictionTime = now;
             await predict();
+            lastPredictionTime = Date.now(); // The critical fix
         }
     } catch (e) {
         console.error("Loop Error:", e);
