@@ -579,14 +579,22 @@ async function init() {
 
         // 1. Initialize Webcam (Async - Start this first!)
         if (!webcam) {
-            webcam = new tmImage.Webcam(400, 300, true); // width, height, flip
+            // width, height, flip
+            webcam = new tmImage.Webcam(400, 300, true); 
         }
 
-        // 2. Run Database and Model Readiness in parallel with camera setup
-        const [dbR, cameraReady] = await Promise.all([
+        // 2. Run Subsystems & Setup Camera with mobile-friendly constraints
+        const [dbR, _] = await Promise.all([
             initDB().catch(e => { console.warn(e); return null; }),
-            webcam.setup() // This is the slow part that needs to start ASAP
+            webcam.setup({ facingMode: 'user' }) // Explicitly request front camera
         ]);
+
+        // 4. Force mobile video behavior (crucial for iOS/Android Chrome)
+        if (webcam.webcam) {
+            webcam.webcam.setAttribute('playsinline', true);
+            webcam.webcam.setAttribute('muted', true);
+            webcam.webcam.muted = true;
+        }
 
         // 3. Ensure model is actually loaded (it might still be downloading from preWarm)
         if (!isModelLoaded) {
@@ -644,11 +652,16 @@ async function init() {
 
     } catch (error) {
         isModelLoaded = false;
+        console.error("Critical Startup Error:", error);
         if (startupMessage) {
             startupMessage.style.display = 'flex';
-            startupMessage.innerHTML = '<div class="standby-text" style="color:var(--stat-danger)">CAMERA ERROR</div>';
+            startupMessage.innerHTML = `
+                <div class="standby-text" style="color:var(--danger); font-weight:bold;">CAMERA ERROR</div>
+                <div style="font-size:0.6rem; color:var(--text-muted); margin-top:8px; text-transform:uppercase;">${error.name || 'Error'}: ${error.message || 'Access Denied'}</div>
+                <button onclick="location.reload()" class="btn-sm" style="margin-top:12px; border-color:var(--danger); color:var(--danger);">RETRY SYSTEM</button>
+            `;
         }
-        logEvent('Critical failure: Unable to access cabin camera.', 't-crit');
+        logEvent(`FATAL: ${error.name || 'Camera error'} — ${error.message || 'Check permissions'}`, 't-crit');
         startBtn.disabled = false;
     }
 }
