@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // DRIVERWATCH ENTERPRISE - LOGIC KERNEL
 // ==========================================
 
@@ -41,9 +41,11 @@ let lastSpeedLimitCheck = 0;
 let isSpeedingAlertActive = false;
 let lastImpactTime = 0;
 /** Linear acceleration (m/s²) — phones often expose this for real shocks; magnitude of gravity vector stays ~9.8 so old “total G” test failed. */
-const LINEAR_IMPACT_MS2 = 11;
+const LINEAR_IMPACT_MS2 = 30; // raised: ~3g, was 11 (too sensitive)
 /** Sudden change in accelerationIncludingGravity between samples (m/s² delta) — fallback when linear accel is null */
-const JERK_IMPACT_MS2 = 18;
+const JERK_IMPACT_MS2 = 45; // raised: ~4.5g delta, was 18
+const IMPACT_CONFIRM_FRAMES = 2;
+let impactStreak = 0;
 let lastGravitySample = null;
 /** iOS 13+: set from Start click (same gesture as permission); null = non‑iOS or no API */
 let motionPermissionGranted = null;
@@ -766,32 +768,34 @@ async function init() {
 }
 
 async function loop() {
-    if (!isRunning || isEmergencyActive) return;
+    if (!isRunning) return;
     
-    try {
-        // Native mirror draw loop
-        if (webcam.readyState >= 2) { // HAVE_CURRENT_DATA
-            // Flip horiz mentally: translate(width, 0) scale(-1, 1)
-            webcamCtx.save();
-            webcamCtx.scale(-1, 1);
-            webcamCtx.drawImage(webcam, -400, 0, 400, 300);
-            webcamCtx.restore();
-        }
-        fpsMetrics.frames++;
-        
-        const now = Date.now();
-        
-        // UI/FPS update
-        if (now - fpsMetrics.lastTime >= 1000) {
-            if (footerDataStream) {
-                footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: 400x300`;
+    if (!isEmergencyActive) {
+        try {
+            // Native mirror draw loop
+            if (webcam.readyState >= 2) { // HAVE_CURRENT_DATA
+                // Flip horiz mentally: translate(width, 0) scale(-1, 1)
+                webcamCtx.save();
+                webcamCtx.scale(-1, 1);
+                webcamCtx.drawImage(webcam, -400, 0, 400, 300);
+                webcamCtx.restore();
             }
-            fpsMetrics.frames = 0;
-            fpsMetrics.lastTime = now;
+            fpsMetrics.frames++;
+            
+            const now = Date.now();
+            
+            // UI/FPS update
+            if (now - fpsMetrics.lastTime >= 1000) {
+                if (footerDataStream) {
+                    footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: 400x300`;
+                }
+                fpsMetrics.frames = 0;
+                fpsMetrics.lastTime = now;
+            }
+        } catch (e) {
+            console.error("Loop Error:", e);
+            logEvent(`SYS_EXCEPTION: ${e.message}`, 't-crit');
         }
-    } catch (e) {
-        console.error("Loop Error:", e);
-        logEvent(`SYS_EXCEPTION: ${e.message}`, 't-crit');
     }
     
     // Continue loop
@@ -1151,9 +1155,10 @@ async function scanNearbyEmergencyServices(lat, lng) {
     }
 
     return withCoords.slice(0, 5).map((el) => {
-        const rawName = el.tags.name || el.tags.amenity || 'Unknown Service';
-        const rawType = (el.tags.amenity || el.tags.emergency || '').toUpperCase().replace('_', ' ');
-        const rawPhone = el.tags.phone || el.tags['contact:phone'] || '';
+        const tags = el.tags || {};
+        const rawName = tags.name || tags.amenity || 'Unknown Service';
+        const rawType = (tags.amenity || tags.emergency || '').toUpperCase().replace('_', ' ');
+        const rawPhone = tags.phone || tags['contact:phone'] || '';
         const name = escapeHtml(rawName);
         const type = escapeHtml(rawType);
         const phone = escapeHtml(rawPhone);
@@ -1385,32 +1390,42 @@ function handleMotion(event) {
     if (!isRunning || isEmergencyActive) return;
 
     const linear = event.acceleration;
-    let suddenShock = false;
+    let overThreshold = false;
 
     if (linear && linear.x != null && linear.y != null && linear.z != null) {
         const mag = Math.sqrt(linear.x * linear.x + linear.y * linear.y + linear.z * linear.z);
-        if (mag >= LINEAR_IMPACT_MS2) suddenShock = true;
+        if (mag >= LINEAR_IMPACT_MS2) overThreshold = true;
     }
 
     const g = event.accelerationIncludingGravity;
-    if (!suddenShock && g && g.x != null && lastGravitySample) {
+    if (!overThreshold && g && g.x != null && lastGravitySample) {
         const dx = g.x - lastGravitySample.x;
         const dy = g.y - lastGravitySample.y;
         const dz = g.z - lastGravitySample.z;
         const delta = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (delta >= JERK_IMPACT_MS2) suddenShock = true;
+        if (delta >= JERK_IMPACT_MS2) overThreshold = true;
     }
     if (g && g.x != null) {
         lastGravitySample = { x: g.x, y: g.y, z: g.z };
     }
 
-    if (!suddenShock) return;
+    // Require IMPACT_CONFIRM_FRAMES consecutive over-threshold samples to confirm a real crash.
+    // This eliminates single-spike false positives from tapping, slapping or bumping the phone.
+    if (overThreshold) {
+        impactStreak++;
+    } else {
+        impactStreak = 0;
+        return;
+    }
+
+    if (impactStreak < IMPACT_CONFIRM_FRAMES) return;
+    impactStreak = 0; // reset so it can fire again after cooldown
 
     const now = Date.now();
-    if (now - lastImpactTime < 5000) return;
+    if (now - lastImpactTime < 8000) return; // 8-second cooldown between events
     lastImpactTime = now;
 
-    logEvent('CRITICAL: Sharp motion / possible collision detected (accelerometer).', 't-crit');
+    logEvent('CRITICAL: Sustained high-G event detected — possible collision.', 't-crit');
     triggerEmergency(true);
 }
 
@@ -1473,9 +1488,12 @@ function playDispatcherVoice() {
         dispatchUtterance.onerror = (e) => {
             console.error("Speech Logic Error:", e);
             logEvent(`VOICE_ERROR: ${e.error}. Hardware state: ${synth.paused ? 'PAUSED' : 'ACTIVE'}`, 't-crit');
-            // Aggressive recovery
-            if (e.error !== 'canceled') {
+            // Aggressive recovery (capped to prevent infinite freezes)
+            if (e.error !== 'canceled' && dispatcherVoiceRetryCount < 2) {
+                dispatcherVoiceRetryCount++;
                 setTimeout(() => { if (isRunning && isEmergencyActive) synth.speak(dispatchUtterance); }, 1000);
+            } else if (dispatcherVoiceRetryCount >= 2) {
+                logEvent('VOICE: Audio hardware unresponsive. Halting TTS retry.', 't-warn');
             }
         };
 
@@ -1601,50 +1619,62 @@ async function saveVideoToCloud(id, blob, type, referenceId) {
         return;
     }
     try {
-        logEvent(`CLOUD: Uploading ${type} to secure vault (Supabase)...`, 't-info');
+        logEvent(`CLOUD: Uploading ${type} to Cloudinary vault...`, 't-info');
         const idToken = await user.getIdToken();
+
+        // Step 1: Get Cloudinary signed upload parameters from our server
         const presignRes = await fetch('/api/recording-presign', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${idToken}`
             },
-            body: JSON.stringify({ id, contentType: blob.type || 'video/webm' })
+            body: JSON.stringify({ id })
         });
         const presign = await readJsonResponse(presignRes);
         if (!presignRes.ok) {
-            throw new Error(presign.error || 'Could not get upload URL — check Vercel env (Supabase + Firebase Admin).');
+            throw new Error(presign.error || 'Could not get Cloudinary upload credentials.');
         }
 
-        const putRes = await fetch(presign.signedUrl, {
-            method: 'PUT',
-            body: blob,
-            headers: {
-                'Content-Type': blob.type || 'video/webm'
-            }
+        // Step 2: Upload video blob directly from browser to Cloudinary
+        const formData = new FormData();
+        formData.append('file', blob, `${id}.webm`);
+        formData.append('public_id', presign.publicId);
+        formData.append('folder', presign.folder);
+        formData.append('timestamp', String(presign.timestamp));
+        formData.append('api_key', presign.apiKey);
+        formData.append('signature', presign.signature);
+
+        const putRes = await fetch(presign.uploadUrl, {
+            method: 'POST',
+            body: formData,
         });
-        if (!putRes.ok) {
-            const t = await putRes.text().catch(() => '');
-            throw new Error(`Upload failed (${putRes.status}) ${t.slice(0, 160)}`);
+        const uploadResult = await putRes.json();
+
+        if (!putRes.ok || uploadResult.error) {
+            throw new Error(`Cloudinary upload failed: ${uploadResult.error?.message || putRes.status}`);
         }
 
-        const storagePath = presign.path;
+        const cloudUrl  = uploadResult.secure_url;
+        const publicId  = uploadResult.public_id;
         const driverName = currentUserData?.driverName || user.displayName || 'Driver';
 
+        // Step 3: Save metadata + permanent URL to Firestore
         await db.collection('users').doc(user.uid).collection('recordings').doc(id).set({
             id: id,
             referenceId: refId,
             userId: user.uid,
             driverName: driverName,
-            url: '',
-            storagePath: storagePath,
-            storageBackend: 'supabase',
+            url: cloudUrl,
+            publicId: publicId,
+            storagePath: publicId,
+            storageBackend: 'cloudinary',
             type: type,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             readableTime: new Date().toLocaleString()
         });
 
-        logEvent(`CLOUD: ✅ ${type} saved to your vault (ref ${refId}).`, 't-succ');
+        logEvent(`CLOUD: ✅ ${type} saved to Cloudinary vault (ref ${refId}).`, 't-succ');
         loadMediaVault();
     } catch (e) {
         console.error('Cloud Upload Failed:', e);
@@ -1806,31 +1836,17 @@ async function playVideo(id, isLocal, cloudUrl) {
     }
 
     let url = cloudUrl;
+    // Cloudinary URLs are permanent public URLs — use directly.
+    // Fallback: fetch from Firestore if the vault cache is missing the URL.
     if (!url && auth.currentUser) {
         try {
             const doc = await db.collection('users').doc(auth.currentUser.uid).collection('recordings').doc(id).get();
             if (doc.exists) {
                 const d = doc.data();
-                if (d.storageBackend === 'supabase' && d.storagePath) {
-                    const idToken = await auth.currentUser.getIdToken();
-                    const r = await fetch('/api/recording-play-url', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            Authorization: `Bearer ${idToken}`
-                        },
-                        body: JSON.stringify({ path: d.storagePath })
-                    });
-                    const j = await readJsonResponse(r);
-                    if (r.ok && j.signedUrl) {
-                        url = j.signedUrl;
-                    }
-                } else if (d.url) {
-                    url = d.url;
-                }
+                url = d.url || null;
             }
         } catch (e) {
-            console.warn('Vault: could not load download URL', e);
+            console.warn('Vault: could not load playback URL', e);
         }
     }
     if (url) {
@@ -1886,7 +1902,8 @@ function deleteVideo(id, isLocal) {
             const data = snap.exists ? snap.data() : null;
             await docRef.delete();
 
-            if (data && data.storageBackend === 'supabase' && data.storagePath) {
+            if (data && data.storageBackend === 'cloudinary' && data.publicId) {
+                // Delete from Cloudinary via our server-side API (keeps API secret off the client)
                 const idToken = await user.getIdToken();
                 await fetch('/api/recording-delete-storage', {
                     method: 'POST',
@@ -1894,12 +1911,10 @@ function deleteVideo(id, isLocal) {
                         'Content-Type': 'application/json',
                         Authorization: `Bearer ${idToken}`
                     },
-                    body: JSON.stringify({ path: data.storagePath })
+                    body: JSON.stringify({ publicId: data.publicId })
                 }).catch(() => {});
-            } else {
-                await storage.ref().child(`users/${user.uid}/videos/${id}.webm`).delete().catch(() => {});
             }
-            logEvent('CLOUD: Record removed from fleet vault.', 't-info');
+            logEvent('CLOUD: Record removed from Cloudinary vault.', 't-info');
         } catch (e) {
             console.warn('Cloud vault delete:', e);
         }
@@ -1938,15 +1953,29 @@ function updateSessionStats() {
 
 function stopSystem() {
     isRunning = false;
-    isModelLoaded = false;
+    
+    if (typeof predictionIntervalHandle !== 'undefined' && predictionIntervalHandle) {
+        clearInterval(predictionIntervalHandle);
+        predictionIntervalHandle = null;
+    }
+    
+    cancelEmergency();
+
     resetFatigueStreaks();
     stopRecording();
     stopLocationTracking();
     stopImpactDetection();
     lastSpeedSample = null;
     lastGravitySample = null;
-    clearInterval(sessionInterval);
-    if (webcam) webcam.stop();
+    if (typeof sessionInterval !== 'undefined' && sessionInterval) {
+        clearInterval(sessionInterval);
+    }
+    
+    if (webcam && webcam.srcObject) {
+        webcam.srcObject.getTracks().forEach(track => track.stop());
+        webcam.srcObject = null;
+    }
+    
     if (keepWarmInterval) clearInterval(keepWarmInterval);
     if (liveIndicator) liveIndicator.classList.remove('active');
     if (cameraBadge) {
@@ -1955,5 +1984,11 @@ function stopSystem() {
     }
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    navSystemTag.innerHTML = `SYS: <span class="status-indicator">STANDBY</span>`;
+    if (navSystemTag) {
+        navSystemTag.className = 'sys-badge';
+        navSystemTag.innerHTML = `SYS: <span class="status-indicator">STANDBY</span>`;
+    }
+    
+    setStatus('awake', 'SYSTEM STANDBY', 'Monitoring offline.'); 
+    logEvent('Operator deactivated system. Monitoring stopped.', 't-info');
 }

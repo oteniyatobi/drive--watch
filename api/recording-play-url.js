@@ -1,8 +1,9 @@
 // POST /api/recording-play-url
-// Body: { path } — must be users/<uid>/videos/... for the authenticated Firebase user.
+// Returns the Cloudinary permanent URL stored in Firestore for this user's recording.
+// Cloudinary URLs are publicly accessible by default — no signed URL generation needed.
+// Env: FIREBASE_SERVICE_ACCOUNT_JSON
 
 const { getFirebaseAdmin } = require('./lib/firebaseAdmin');
-const { getSupabaseAdmin } = require('./lib/supabaseAdmin');
 
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {
@@ -15,37 +16,35 @@ module.exports = async (req, res) => {
             return res.status(401).json({ error: 'Missing Authorization Bearer token' });
         }
 
-        const admin = getFirebaseAdmin();
+        const admin   = getFirebaseAdmin();
         const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
-        const uid = decoded.uid;
+        const uid     = decoded.uid;
 
-        const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
-        const path = body.path;
-        if (!path || typeof path !== 'string') {
-            return res.status(400).json({ error: 'Missing path' });
-        }
-        if (!path.startsWith(`users/${uid}/`)) {
-            return res.status(403).json({ error: 'Forbidden path' });
+        const body        = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+        const recordingId = body.id;
+        if (!recordingId || typeof recordingId !== 'string') {
+            return res.status(400).json({ error: 'Missing recording id' });
         }
 
-        const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'recordings';
-        const supabase = getSupabaseAdmin();
-        const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+        const db  = admin.firestore();
+        const doc = await db.collection('users').doc(uid).collection('recordings').doc(recordingId).get();
 
-        if (error) {
-            return res.status(500).json({ error: error.message });
+        if (!doc.exists) {
+            return res.status(404).json({ error: 'Recording not found' });
         }
 
-        return res.status(200).json({ signedUrl: data.signedUrl });
+        const data = doc.data();
+        if (!data.url) {
+            return res.status(404).json({ error: 'Playback URL not available for this recording' });
+        }
+
+        return res.status(200).json({ signedUrl: data.url });
     } catch (e) {
         console.error('recording-play-url:', e);
         const msg = e?.message || String(e);
         if (msg.includes('FIREBASE_SERVICE_ACCOUNT_JSON')) {
             return res.status(503).json({ error: 'Server missing FIREBASE_SERVICE_ACCOUNT_JSON.' });
         }
-        if (msg.includes('SUPABASE') || msg.includes('not set')) {
-            return res.status(503).json({ error: 'Server missing Supabase env vars.' });
-        }
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        return res.status(500).json({ error: msg });
     }
 };

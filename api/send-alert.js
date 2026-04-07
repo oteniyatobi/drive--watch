@@ -19,6 +19,10 @@ module.exports = async (req, res) => {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
+    
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({ error: 'Missing or invalid request body' });
+    }
 
     const {
         to,
@@ -49,7 +53,7 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: `Missing Vercel Environment Variables: ${missing.join(', ')}` });
     }
 
-    const cleanPhone = to.replace(/\D/g, '');
+    const cleanPhone = String(to).replace(/\D/g, '');
     const toWhatsApp = `whatsapp:+${cleanPhone}`;
     const who = driverName || 'The driver';
     const when = time || new Date().toLocaleString();
@@ -110,7 +114,7 @@ module.exports = async (req, res) => {
             );
 
             const policeContact = process.env.TWILIO_POLICE_NUMBER || to;
-            const cleanPolicePhone = policeContact.replace(/\D/g, '');
+            const cleanPolicePhone = String(policeContact).replace(/\D/g, '');
             const toPoliceVoice = `+${cleanPolicePhone}`;
             const fromVoice = process.env.TWILIO_PHONE_NUMBER || from.replace('whatsapp:', '');
 
