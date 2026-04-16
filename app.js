@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // DRIVERWATCH ENTERPRISE - LOGIC KERNEL
 // ==========================================
 
@@ -462,7 +462,10 @@ auth.onAuthStateChanged(async (user) => {
                 const ec = currentUserData.emergencyContact;
                 if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
                 if (dispPhone) dispPhone.innerText = ec?.phone || '---';
-                attachVaultFirestoreListener();
+                
+                initDB().catch(e => console.warn('initDB failed on startup:', e)).finally(() => {
+                    attachVaultFirestoreListener();
+                });
 
                 // Trigger model pre-load for faster startup
                 preWarmModel();
@@ -663,10 +666,7 @@ async function init() {
 
             try {
                 await Promise.race([
-                    Promise.all([
-                        initDB().catch(e => { console.warn(e); return null; }),
-                        preWarmModel() // This returns the existing promise if already loading
-                    ]),
+                    preWarmModel(), // This returns the existing promise if already loading
                     timeoutPromise
                 ]);
             } catch (e) {
