@@ -271,30 +271,49 @@ function startHDSpeedingBeep() {
 // ==========================================
 // SUBSYSTEM: PREDICTION STABILIZATION
 // ==========================================
-/** Rolling average length — higher = steadier bar readouts, fewer single-frame spikes */
-const SMOOTHING_WINDOW = 14;
-let predictionHistory = [];
 
+/**
+ * EWMA smoothing factor (0–1).
+ * 0.22 = moderately smooth: recent frames count ~4× more than frames 7 steps back,
+ * giving fast response to real state changes while killing single-frame noise.
+ */
+const EWMA_ALPHA = 0.22;
+let ewmaState = null;      // Per-class EWMA state vector
+let predictionHistory = []; // Kept for legacy compat (not used for smoothing anymore)
+
+/**
+ * Exponential Weighted Moving Average — replaces the old flat rolling average.
+ * New value = α × current + (1−α) × previous.
+ * Outperforms simple average because it reacts faster to genuine state shifts
+ * while still suppressing single-frame jitter from lighting and head micro-movement.
+ */
 function getSmoothedPredictions(rawPrediction) {
-    const frame = rawPrediction.map(p => ({
-        className: p.className,
-        probability: p.probability
-    }));
-    predictionHistory.push(frame);
-
-    if (predictionHistory.length > SMOOTHING_WINDOW) {
-        predictionHistory.shift();
+    if (ewmaState === null) {
+        // Bootstrap: use first frame as initial state
+        ewmaState = rawPrediction.map(p => ({ className: p.className, probability: p.probability }));
+        return ewmaState.map(p => ({ ...p }));
     }
 
-    const smoothed = frame.map((p, i) => {
-        const avgProb = predictionHistory.reduce((sum, f) => sum + f[i].probability, 0) / predictionHistory.length;
-        return {
-            className: p.className,
-            probability: avgProb
-        };
-    });
+    ewmaState = rawPrediction.map((p, i) => ({
+        className: p.className,
+        probability: EWMA_ALPHA * p.probability + (1 - EWMA_ALPHA) * ewmaState[i].probability
+    }));
 
-    return smoothed;
+    return ewmaState.map(p => ({ ...p }));
+}
+
+/**
+ * Normalized Shannon entropy of the raw prediction distribution (0 = certain, 1 = max uncertain).
+ * High entropy → model is confused (face not visible, camera blocked, or extreme lighting).
+ * We skip those frames instead of letting bad guesses pollute the fatigue state.
+ */
+function getPredictionEntropy(prediction) {
+    const total = prediction.reduce((s, p) => s + p.probability, 0);
+    if (total === 0) return 1;
+    return -prediction.reduce((s, p) => {
+        const prob = p.probability / total;
+        return s + (prob > 0 ? prob * Math.log2(prob) : 0);
+    }, 0) / Math.log2(prediction.length); // Normalized to [0, 1]
 }
 
 /**
@@ -315,20 +334,31 @@ function getClassProbabilities(prediction) {
     return { awake, sleepy, neutral };
 }
 
-// --- Fatigue inference gates (no model retrain required; tune here) ---
-const SLEEPY_PROB_MIN = 0.69;
-const SLEEPY_MARGIN_MIN = 0.11;
-/** Consecutive “raw fatigue” frames before escalation timers start (~200ms @ 60fps) */
-const FATIGUE_ENTRY_FRAMES = 12;
-/** Consecutive non-fatigue frames before clearing (~80ms @ 60fps) — fast recovery when alert */
-const FATIGUE_EXIT_FRAMES = 5;
+// --- Fatigue inference gates (tune here; no model retrain required) ---
+const SLEEPY_PROB_MIN    = 0.65;   // Minimum SLEEPY confidence (EWMA is already smoothed so slightly lower is fine)
+const SLEEPY_MARGIN_MIN  = 0.10;   // SLEEPY must beat the next-best class by at least this margin
+const ENTROPY_THRESHOLD  = 0.80;   // Skip frames where model entropy > 80% (face absent / camera blocked)
+/** Consecutive raw-fatigue frames before sustained detection starts (~1.0 s @ 10 fps) */
+const FATIGUE_ENTRY_FRAMES = 10;
+/** Consecutive non-fatigue frames needed to clear — raised to reduce false dismissals */
+const FATIGUE_EXIT_FRAMES  = 9;
 
+// ---- Composite fatigue score (0–10) ----
+// Accumulates on sleepy frames proportional to model confidence; drains on awake frames.
+// Triggers sustained fatigue sooner when confidence is very high; resists clearing when score is elevated.
+const FATIGUE_SCORE_THRESHOLD = 6.0;  // Score required to declare sustained fatigue
+const FATIGUE_SCORE_DRAIN     = 0.55; // Base drain per non-fatigue frame
+const FATIGUE_SCORE_MAX       = 10;   // Hard cap
+
+let fatigueScore = 0;
 let fatigueTrueStreak = 0;
 let fatigueFalseStreak = 0;
 let sustainedFatigueDetection = false;
 
 function resetFatigueStreaks() {
     predictionHistory = [];
+    ewmaState = null;
+    fatigueScore = 0;
     fatigueTrueStreak = 0;
     fatigueFalseStreak = 0;
     sustainedFatigueDetection = false;
@@ -342,21 +372,36 @@ function isRawFatigueFrame(sleepy, awake, neutral) {
     return true;
 }
 
-function updateSustainedFatigue(isRaw) {
+/**
+ * Updates the composite fatigue score and sustained-fatigue flag.
+ *
+ * @param {boolean} isRaw  - Whether this frame passes the raw fatigue gate
+ * @param {number}  sleepy - Smoothed SLEEPY probability (0–1)
+ * @param {number}  awake  - Smoothed AWAKE probability (0–1)
+ */
+function updateSustainedFatigue(isRaw, sleepy, awake) {
     if (isRaw) {
+        // Accumulate score proportional to how confident SLEEPY is
+        fatigueScore = Math.min(FATIGUE_SCORE_MAX, fatigueScore + sleepy);
         fatigueFalseStreak = 0;
         if (!sustainedFatigueDetection) {
             fatigueTrueStreak++;
-            if (fatigueTrueStreak >= FATIGUE_ENTRY_FRAMES) {
+            // Trigger on either sustained streak OR high accumulated score
+            if (fatigueTrueStreak >= FATIGUE_ENTRY_FRAMES || fatigueScore >= FATIGUE_SCORE_THRESHOLD) {
                 sustainedFatigueDetection = true;
             }
         }
     } else {
+        // Drain score — faster when awake confidence is high
+        fatigueScore = Math.max(0, fatigueScore - FATIGUE_SCORE_DRAIN - awake * 0.25);
         fatigueTrueStreak = 0;
         if (sustainedFatigueDetection) {
             fatigueFalseStreak++;
-            if (fatigueFalseStreak >= FATIGUE_EXIT_FRAMES) {
+            // Require more exit frames when score is still elevated (driver may still be drowsy)
+            const requiredExit = fatigueScore > 2.5 ? FATIGUE_EXIT_FRAMES + 4 : FATIGUE_EXIT_FRAMES;
+            if (fatigueFalseStreak >= requiredExit && fatigueScore < 0.8) {
                 sustainedFatigueDetection = false;
+                fatigueFalseStreak = 0;
             }
         } else {
             fatigueFalseStreak = 0;
@@ -821,10 +866,22 @@ async function predictLoop() {
 
 async function predict() {
     const rawPrediction = await model.predict(webcamCanvas);
+
+    // --- Entropy gate: skip frames where the model is too uncertain ---
+    // (face not visible, camera blocked, extreme lighting, head fully turned away)
+    const entropy = getPredictionEntropy(rawPrediction);
     const prediction = getSmoothedPredictions(rawPrediction);
     const { awake, sleepy, neutral } = getClassProbabilities(prediction);
-    const rawFatigue = isRawFatigueFrame(sleepy, awake, neutral);
-    const isAsleep = updateSustainedFatigue(rawFatigue);
+
+    let isAsleep;
+    if (entropy > ENTROPY_THRESHOLD) {
+        // Model is confused — hold current state rather than flipping to false.
+        // This prevents "camera blocked → driver wakes up" false dismissals.
+        isAsleep = sustainedFatigueDetection;
+    } else {
+        const rawFatigue = isRawFatigueFrame(sleepy, awake, neutral);
+        isAsleep = updateSustainedFatigue(rawFatigue, sleepy, awake);
+    }
 
     for (let i = 0; i < maxPredictions; i++) {
         const val = prediction[i].probability;
@@ -1600,7 +1657,7 @@ function saveVideoToDB(id, blob, type) {
         });
     }
 
-    // 2. Save to Cloud (Supabase Storage + Firestore metadata)
+    // 2. Save to Cloud (Cloudinary storage + Firestore metadata)
     saveVideoToCloud(id, blob, type, referenceId);
 
     loadMediaVault();
@@ -1859,14 +1916,39 @@ async function playVideo(id, isLocal, cloudUrl) {
 function startPlayback(url) {
     const player = document.getElementById('vault-player');
     const modal = document.getElementById('vault-modal');
+    if (!player || !modal) return;
 
     if (player.src && player.src.startsWith('blob:')) {
         window.URL.revokeObjectURL(player.src);
     }
 
-    player.src = url;
+    // Cloudinary stores .webm but iOS Safari doesn't support WebM.
+    // Cloudinary transcodes on-the-fly — just swap the extension to .mp4.
+    const playUrl = /cloudinary\.com/.test(url) && /\.webm(\?|$)/.test(url)
+        ? url.replace(/\.webm(\?|$)/, '.mp4$1')
+        : url;
+
+    player.src = playUrl;
     modal.classList.remove('hidden');
-    player.play().catch(e => console.error("Playback failed:", e));
+
+    // Must call load() first — setting src alone doesn't start buffering.
+    // Then wait for canplay before calling play(), otherwise play() rejects
+    // with a "no supported source" or "not ready" error and nothing happens.
+    player.load();
+
+    player.addEventListener('canplay', function onReady() {
+        player.removeEventListener('canplay', onReady);
+        player.play().catch(err => {
+            console.error('Playback failed:', err);
+            logEvent('VAULT: Playback failed — try a different browser or check your connection.', 't-warn');
+        });
+    }, { once: true });
+
+    player.addEventListener('error', function onErr() {
+        player.removeEventListener('error', onErr);
+        console.error('Video load error:', player.error);
+        logEvent('VAULT: Could not load video — file may still be processing on Cloudinary.', 't-warn');
+    }, { once: true });
 }
 
 function closeVaultPlayer() {
