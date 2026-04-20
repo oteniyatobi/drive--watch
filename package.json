@@ -4,6 +4,7 @@
     "description": "DriverWatch Enterprise Safety System",
     "scripts": {
         "start": "npx serve . --listen 3000",
+        "build": "npm run build:web",
         "build:web": "node scripts/build-web.js",
         "cap:sync": "npm run build:web && npx cap sync android",
         "cap:open": "npx cap open android",
