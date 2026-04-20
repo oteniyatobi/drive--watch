@@ -39,6 +39,7 @@
 
 
     <div style="display:flex;align-items:center;gap:8px;">
+      <span class="sys-badge" id="nav-system-tag">READY</span>
       <span class="nav-clock" id="nav-clock">00:00:00</span>
       <button type="button" class="btn-icon" onclick="logout()" id="logout-btn" title="Logout">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -360,9 +361,11 @@
       const btn   = document.getElementById('nav-tab-' + name);
       if (panel) panel.classList.add('active');
       if (btn)   btn.classList.add('active');
-      // Init map lazily on first open
       if (name === 'map' && typeof onMapTabOpened === 'function') {
-        setTimeout(onMapTabOpened, 80);
+        setTimeout(onMapTabOpened, 120);
+      }
+      if (name === 'profile' && typeof renderProfile === 'function') {
+        renderProfile();
       }
     }
 

@@ -2111,8 +2111,10 @@ function stopSystem() {
     }
     startBtn.disabled = false;
     stopBtn.disabled = true;
+    if (navSystemTag) {
         navSystemTag.className = 'sys-badge';
         navSystemTag.innerHTML = `READY`;
+    }
     
     setStatus('awake', 'MONITORING OFFLINE', 'Tap start to begin a new session.'); 
     logEvent('Session ended. Monitoring stopped.', 't-info');
@@ -2132,10 +2134,7 @@ function switchTab(name) {
     const panel = document.getElementById('tab-' + name);
     const btn   = document.getElementById('nav-tab-' + name);
     
-    if (panel) {
-        panel.style.display = 'flex'; // Ensure display flex before animation
-        setTimeout(() => panel.classList.add('active'), 10);
-    }
+    if (panel) panel.classList.add('active');
     if (btn) btn.classList.add('active');
     
     if (name === 'map' && typeof onMapTabOpened === 'function') {
