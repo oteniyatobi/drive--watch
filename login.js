@@ -1,3 +1,9 @@
+// Detect if running inside the native Capacitor app (Android / iOS).
+const isNativeApp = typeof window !== 'undefined' &&
+    window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === 'function' &&
+    window.Capacitor.isNativePlatform();
+
 // UI Utilities
 function toggleView(view) {
     document.getElementById('login-view').style.display = 'none';
@@ -97,23 +103,41 @@ auth.onAuthStateChanged(async (user) => {
 });
 
 // Google Sign-In
+// - Native app (Android/iOS): uses the Capacitor GoogleAuth plugin — opens the native
+//   Google account picker already on the device, no WebView redirect needed.
+// - Web browser: uses Firebase signInWithPopup as normal.
 document.getElementById('google-signin-btn').addEventListener('click', async () => {
-    const provider = new firebase.auth.GoogleAuthProvider();
     const errorDiv = document.getElementById('login-error');
     errorDiv.style.display = 'none';
 
     try {
-        const result = await auth.signInWithPopup(provider);
-        const user = result.user;
-        // Check if they already have a profile; if not, show onboarding
-        const doc = await db.collection('users').doc(user.uid).get();
+        let firebaseUser;
+
+        if (isNativeApp) {
+            // Native path — uses the Google account picker built into Android
+            const GoogleAuth = window.Capacitor.Plugins.GoogleAuth;
+            await GoogleAuth.initialize();
+            const googleUser = await GoogleAuth.signIn();
+            const idToken = googleUser.authentication.idToken;
+            const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
+            const result = await auth.signInWithCredential(credential);
+            firebaseUser = result.user;
+        } else {
+            // Web path — standard popup flow
+            const provider = new firebase.auth.GoogleAuthProvider();
+            const result = await auth.signInWithPopup(provider);
+            firebaseUser = result.user;
+        }
+
+        const doc = await db.collection('users').doc(firebaseUser.uid).get();
         if (doc.exists) {
             window.location.replace('/');
         } else {
-            showOnboardingUI(user);
+            showOnboardingUI(firebaseUser);
         }
     } catch (err) {
-        errorDiv.textContent = err.message;
+        const errorDiv = document.getElementById('login-error');
+        errorDiv.textContent = err.message || 'Google Sign-In failed. Try email instead.';
         errorDiv.style.display = 'block';
     }
 });

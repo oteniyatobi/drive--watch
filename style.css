@@ -188,8 +188,31 @@ a { color: inherit; text-decoration: none; }
    MAIN LAYOUT + TABS
    ============================================================ */
 .app-main { display: flex; flex-direction: column; }
-.tab-panel { display: none; flex-direction: column; animation: fade-in 0.2s var(--ease); }
-.tab-panel.active { display: flex; }
+/* ── Tab Panels (Transitioning) ─────────────────── */
+.tab-panel {
+  display: none;
+  opacity: 0;
+  transform: translateY(8px) scale(0.99);
+  transition: opacity 0.4s var(--ease), transform 0.4s var(--ease-spring);
+  flex-direction: column;
+}
+.tab-panel.active {
+  display: flex !important;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Monitoring Pulse (Calm) */
+.status-card.active-monitoring::after {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(circle at center, var(--primary-dim) 0%, transparent 70%);
+  opacity: 0; animation: calm-pulse 4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes calm-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.15; }
+}
 
 /* ============================================================
    CAMERA HERO
@@ -758,6 +781,93 @@ a { color: inherit; text-decoration: none; }
   font-family: var(--font-mono); font-size: 0.52rem; color: var(--text-muted);
 }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* ============================================================
+   MAP UI OVERLAYS
+   ============================================================ */
+.map-search-container {
+  position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000;
+  display: flex; gap: 8px; animation: slide-up 0.3s var(--ease-spring);
+}
+#map-search-input {
+  flex: 1; height: 48px; border-radius: var(--r-md);
+  background: rgba(17,17,24,0.92); backdrop-filter: blur(20px);
+  border: 1px solid var(--border-hi); color: var(--text);
+  padding: 0 16px; font-family: var(--font-body); font-size: 0.88rem;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  transition: all var(--dur) var(--ease);
+}
+#map-search-input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 4px var(--primary-dim); }
+
+.route-info-card {
+  position: absolute; bottom: 16px; left: 16px; right: 16px; z-index: 1000;
+  background: rgba(17,17,24,0.96); backdrop-filter: blur(28px);
+  border: 1px solid var(--border-hi); border-radius: var(--r-lg);
+  padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  animation: slide-up 0.4s var(--ease-spring);
+}
+.route-info-card.hidden { display: none; }
+.route-info-main { display: flex; gap: 24px; align-items: center; }
+.route-eta-block, .route-dist-block { display: flex; flex-direction: column; }
+.route-eta-label, .route-dist-label { font-family: var(--font-mono); font-size: 0.5rem; color: var(--text-muted); letter-spacing: 0.1em; }
+.route-eta-val { font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; color: var(--primary); line-height: 1; }
+.route-dist-val { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: var(--text); line-height: 1.1; }
+
+@media (min-width: 768px) {
+  .map-search-container { max-width: 400px; }
+  .route-info-card { max-width: 450px; left: 50%; transform: translateX(-50%); }
+}
+
+/* ============================================================
+   PROFILE SECTION (GLASSMORPHISM)
+   ============================================================ */
+.profile-header-card {
+  background: linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(139,92,246,0.05) 100%);
+  border: 1px solid var(--border-hi); border-radius: var(--r-lg);
+  padding: 24px; text-align: center; margin-bottom: 20px;
+  animation: entrance-up 0.6s var(--ease-spring);
+}
+.profile-avatar-circle {
+  width: 80px; height: 80px; border-radius: 50%;
+  background: var(--primary-dim); color: var(--primary);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px; font-size: 2rem; font-weight: 800;
+  border: 2px solid var(--primary);
+  box-shadow: 0 0 20px var(--primary-dim);
+}
+
+.profile-info-stack { display: flex; flex-direction: column; gap: 12px; }
+.profile-row {
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border-lo);
+  border-radius: var(--r-md); padding: 14px 18px;
+  display: flex; justify-content: space-between; align-items: center;
+  transition: all 0.3s var(--ease);
+}
+.profile-row:hover { background: rgba(255,255,255,0.06); border-color: var(--border-hi); }
+.profile-label { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.profile-value { font-family: var(--font-body); font-size: 0.95rem; color: var(--text); font-weight: 500; }
+
+.profile-editable-input {
+  background: rgba(0,0,0,0.3); border: 1px solid var(--primary);
+  color: var(--text); padding: 4px 8px; border-radius: 4px;
+  font-family: var(--font-body); font-size: 0.95rem; width: 60%; text-align: right;
+}
+
+.profile-actions { margin-top: 32px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Micro-animations */
+.btn-toggle-edit {
+  background: transparent; border: 1px solid var(--border-hi);
+  padding: 8px 16px; border-radius: 20px; color: var(--text-muted);
+  font-size: 0.7rem; cursor: pointer; transition: all 0.3s var(--ease);
+}
+.btn-toggle-edit.active { border-color: var(--primary); color: var(--primary); background: var(--primary-dim); }
+
+@keyframes entrance-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 @media (min-width: 768px) {
   .map-wrapper { height: calc(100vh - var(--top-bar-h)); }

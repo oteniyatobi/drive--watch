@@ -9,7 +9,19 @@ let isModelLoaded = false;
 let modelLoadPromise = null; // Singleton promise to prevent race conditions
 let isRunning = false;
 let lastPredictionTime = 0;
-const PREDICTION_INTERVAL_MS = 100; // 10 check per second is plenty for safety & fast for CPU
+const PREDICTION_INTERVAL_MS = 100; // 10 checks per second is plenty for safety & fast for CPU
+/** Detect native Capacitor / Android environment for performance tuning */
+const _isMobileApp = typeof window !== 'undefined' && window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
+const _isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+const IS_MOBILE = _isMobileApp || _isMobileUA;
+/** On mobile, throttle the canvas mirror to ~15fps (67ms) to cut GPU load in half */
+const MIRROR_THROTTLE_MS = IS_MOBILE ? 67 : 0;
+/** On mobile, predict every 250ms (4/sec) instead of 100ms (10/sec) */
+const MOBILE_PREDICTION_MS = IS_MOBILE ? 250 : PREDICTION_INTERVAL_MS;
+/** Webcam resolution — use standard ideal for better hardware compatibility, downscale in canvas */
+const CAM_W = 400;
+const CAM_H = 300;
 let emergencyTimer = null;
 let countdownInterval = null;
 let simulatedCallInterval = null;
@@ -508,9 +520,9 @@ auth.onAuthStateChanged(async (user) => {
                 if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
                 if (dispPhone) dispPhone.innerText = ec?.phone || '---';
                 
-                initDB().catch(e => console.warn('initDB failed on startup:', e)).finally(() => {
-                    attachVaultFirestoreListener();
-                });
+                // Start cloud vault listener immediately (don't wait for IndexedDB)
+                attachVaultFirestoreListener();
+                initDB().catch(e => console.warn('initDB failed on startup:', e));
 
                 // Trigger model pre-load for faster startup
                 preWarmModel();
@@ -561,21 +573,26 @@ cancelEmergencyBtn.addEventListener('click', cancelEmergency);
 // ==========================================
 function logEvent(message, type = 't-info') {
     const now = new Date();
-    const ts = now.toISOString().split('T')[1].substring(0, 11); // Extract 00:00:00.000
+    const ts = now.toISOString().split('T')[1].substring(0, 11); 
 
-    const entry = document.createElement('div');
-    entry.className = `terminal-line ${type}`;
-    entry.innerHTML = `<span class="time">[${ts}]</span> ${message}`;
-
-    activityLog.prepend(entry);
-
-    if (activityLog.children.length > 50) {
-        activityLog.removeChild(activityLog.lastChild);
+    if (activityLog) {
+        const entry = document.createElement('div');
+        entry.className = `terminal-line ${type}`;
+        entry.innerHTML = `<span class="time">[${ts}]</span> ${message}`;
+        activityLog.prepend(entry);
+        if (activityLog.children.length > 50) {
+            activityLog.removeChild(activityLog.lastChild);
+        }
     }
+    
+    // Always mirror to console for debugging
+    if (type.includes('crit')) console.error(`[${ts}] ${message}`);
+    else if (type.includes('warn')) console.warn(`[${ts}] ${message}`);
+    else console.log(`[${ts}] ${message}`);
 }
 
 const clearLogBtn = document.getElementById('clear-log-btn');
-if (clearLogBtn) clearLogBtn.addEventListener('click', (e) => {
+if (clearLogBtn && activityLog) clearLogBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     activityLog.innerHTML = '<div class="terminal-line">[SYS] Buffer cleared by operator.</div>';
 });
@@ -604,7 +621,7 @@ async function preWarmModel() {
             // Tensorflow will re-compile all shaders silently during the first frame, freezing the app!
             try {
                 const dummy = document.createElement('canvas');
-                dummy.width = 400; dummy.height = 300;
+                dummy.width = CAM_W; dummy.height = CAM_H;
                 await model.predict(dummy);
             } catch (e) { }
 
@@ -656,16 +673,16 @@ async function init() {
         // 1. Initialize Bare-Metal Video Element
         if (!webcam) {
             webcam = document.createElement('video');
-            webcam.width = 400;
-            webcam.height = 300;
+            webcam.width = CAM_W;
+            webcam.height = CAM_H;
             webcam.autoplay = true;
             webcam.playsInline = true;
             webcam.muted = true;
             
             // Create the canvas that TM model expects to read from
             webcamCanvas = document.createElement('canvas');
-            webcamCanvas.width = 400;
-            webcamCanvas.height = 300;
+            webcamCanvas.width = CAM_W;
+            webcamCanvas.height = CAM_H;
             webcamCtx = webcamCanvas.getContext('2d');
         }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -676,11 +693,28 @@ async function init() {
             throw Object.assign(new Error('Camera API unavailable. Use Chrome/Edge over HTTPS.'), { name: 'UnsupportedError' });
         }
 
-        // 2. Request Camera Hardware
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 400 }, height: { ideal: 300 } },
-            audio: false
-        });
+        // 2. Request Camera Hardware - Tiered Fallback for Mobile Reliability
+        let stream;
+        try {
+            // Tier 1: Optimized for AI accuracy
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: false
+            });
+        } catch (e1) {
+            console.warn("Camera Tier 1 failed, trying Tier 2 (Basic HD)...", e1);
+            try {
+                // Tier 2: Generic HD fallback
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+            } catch (e2) {
+                console.warn("Camera Tier 2 failed, trying Tier 3 (Generic)...", e2);
+                // Tier 3: Absolute fallback
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            }
+        }
         webcam.srcObject = stream;
         
         // Wait for video stream to start flowing
@@ -755,7 +789,7 @@ async function init() {
         fpsMetrics = { frames: 0, lastTime: Date.now() };
 
         sessionInterval = setInterval(updateSessionStats, 1000);
-        predictionIntervalHandle = setInterval(predictLoop, PREDICTION_INTERVAL_MS);
+        predictionIntervalHandle = setInterval(predictLoop, MOBILE_PREDICTION_MS);
 
         stopBtn.disabled = false;
         if (navSystemTag) {
@@ -819,11 +853,15 @@ async function loop() {
         try {
             // Native mirror draw loop
             if (webcam.readyState >= 2) { // HAVE_CURRENT_DATA
-                // Flip horiz mentally: translate(width, 0) scale(-1, 1)
-                webcamCtx.save();
-                webcamCtx.scale(-1, 1);
-                webcamCtx.drawImage(webcam, -400, 0, 400, 300);
-                webcamCtx.restore();
+                // Throttle mirror draw on mobile to save GPU/CPU
+                const now_mirror = Date.now();
+                if (MIRROR_THROTTLE_MS === 0 || !window._lastMirrorDraw || (now_mirror - window._lastMirrorDraw >= MIRROR_THROTTLE_MS)) {
+                    webcamCtx.save();
+                    webcamCtx.scale(-1, 1);
+                    webcamCtx.drawImage(webcam, -CAM_W, 0, CAM_W, CAM_H);
+                    webcamCtx.restore();
+                    window._lastMirrorDraw = now_mirror;
+                }
             }
             fpsMetrics.frames++;
             
@@ -832,7 +870,7 @@ async function loop() {
             // UI/FPS update
             if (now - fpsMetrics.lastTime >= 1000) {
                 if (footerDataStream) {
-                    footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: 400x300`;
+                    footerDataStream.innerText = `FPS: ${fpsMetrics.frames} | RES: ${CAM_W}x${CAM_H}`;
                 }
                 fpsMetrics.frames = 0;
                 fpsMetrics.lastTime = now;
@@ -1267,7 +1305,10 @@ function startLocationTracking() {
                 onGpsUpdateForMap(lat, lng);
             }
 
-            if (statSpeed) statSpeed.innerText = `${currentSpeed} km/h`;
+            if (statSpeed) {
+                const oldSpeed = parseInt(statSpeed.innerText) || 0;
+                animateValue('stat-speed', oldSpeed, currentSpeed, 400, ' km/h');
+            }
 
             await checkSpeedLimit(currentGeoPosition.lat, currentGeoPosition.lng);
 
@@ -1922,14 +1963,30 @@ function startPlayback(url) {
         window.URL.revokeObjectURL(player.src);
     }
 
-    // Cloudinary stores .webm but iOS Safari doesn't support WebM.
-    // Cloudinary transcodes on-the-fly — just swap the extension to .mp4.
-    const playUrl = /cloudinary\.com/.test(url) && /\.webm(\?|$)/.test(url)
-        ? url.replace(/\.webm(\?|$)/, '.mp4$1')
-        : url;
+    // Force MP4 transcoding on-the-fly via Cloudinary for mobile compatibility 
+    let playUrl = url;
+    if (/cloudinary\.com/.test(url)) {
+        if (/\.webm(\?|$)/.test(url)) {
+            playUrl = url.replace(/\.webm(\?|$)/, '.mp4$1');
+        } else if (!/\.mp4(\?|$)/.test(url)) {
+            const parts = url.split('/');
+            if (!parts[parts.length - 1].includes('.')) {
+                playUrl = url + ".mp4";
+            }
+        }
+    }
 
     player.src = playUrl;
     modal.classList.remove('hidden');
+    
+    // Smooth entrance
+    player.style.opacity = '0';
+    player.load();
+    player.oncanplay = () => {
+        player.style.transition = 'opacity 0.5s ease';
+        player.style.opacity = '1';
+        player.play().catch(e => console.warn('Autoplay blocked:', e));
+    };
 
     // Must call load() first — setting src alone doesn't start buffering.
     // Then wait for canplay before calling play(), otherwise play() rejects
@@ -2029,8 +2086,10 @@ function updateSessionStats() {
     let currentDrowsy = totalDrowsySeconds;
     if (drowsyStartTime) currentDrowsy += (Date.now() - drowsyStartTime) / 1000;
     statDrowsy.innerText = Math.round(currentDrowsy) + 's';
+    
     const alertness = elapsed > 0 ? Math.max(0, (100 - (currentDrowsy / elapsed * 100))) : 100;
-    statScore.innerText = alertness.toFixed(1) + '%';
+    const oldScore = parseFloat(statScore.innerText) || 100;
+    animateValue('stat-score', oldScore, Math.round(alertness * 10) / 10, 500, '%');
 }
 
 function stopSystem() {
@@ -2066,11 +2125,143 @@ function stopSystem() {
     }
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    if (navSystemTag) {
         navSystemTag.className = 'sys-badge';
-        navSystemTag.innerHTML = `SYS: <span class="status-indicator">STANDBY</span>`;
+        navSystemTag.innerHTML = `READY`;
+    
+    setStatus('awake', 'MONITORING OFFLINE', 'Tap start to begin a new session.'); 
+    logEvent('Session ended. Monitoring stopped.', 't-info');
+
+    // Remove pulse animation
+    document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active-monitoring'));
+}
+
+// ── Tab Switching & Initialization ────────────────────────
+function switchTab(name) {
+    const panels = document.querySelectorAll('.tab-panel');
+    const buttons = document.querySelectorAll('.nav-tab');
+    
+    panels.forEach(p => p.classList.remove('active'));
+    buttons.forEach(b => b.classList.remove('active'));
+    
+    const panel = document.getElementById('tab-' + name);
+    const btn   = document.getElementById('nav-tab-' + name);
+    
+    if (panel) {
+        panel.style.display = 'flex'; // Ensure display flex before animation
+        setTimeout(() => panel.classList.add('active'), 10);
+    }
+    if (btn) btn.classList.add('active');
+    
+    if (name === 'map' && typeof onMapTabOpened === 'function') {
+        setTimeout(onMapTabOpened, 300); // Increased delay for safer container rendering
     }
     
-    setStatus('awake', 'SYSTEM STANDBY', 'Monitoring offline.'); 
-    logEvent('Operator deactivated system. Monitoring stopped.', 't-info');
+    if (name === 'profile') {
+        renderProfile();
+    }
 }
+
+// ── Profile Management ────────────────────────────────────
+let isProfileEditing = false;
+function renderProfile() {
+    if (!currentUserData) return;
+    
+    const fields = {
+        'prof-name': currentUserData.driverName || '---',
+        'prof-email': currentUserData.email || '---',
+        'prof-sex': currentUserData.sex || '---',
+        'prof-phone': currentUserData.phone || '---',
+        'prof-ec': currentUserData.emergencyContact?.name ? `${currentUserData.emergencyContact.name} (${currentUserData.emergencyContact.phone})` : '---'
+    };
+    
+    for (const [id, val] of Object.entries(fields)) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = val;
+    }
+    
+    const dispName = document.getElementById('profile-display-name');
+    if (dispName) dispName.innerText = (currentUserData.driverName || 'Operator').toUpperCase();
+    
+    const avatar = document.getElementById('profile-avatar-initials');
+    if (avatar) avatar.innerText = (currentUserData.driverName || '?').charAt(0).toUpperCase();
+}
+
+async function toggleProfileEdit() {
+    const btn = document.getElementById('btn-edit-profile');
+    const rows = document.querySelectorAll('.profile-row');
+    
+    if (!isProfileEditing) {
+        // Enter Edit Mode
+        isProfileEditing = true;
+        btn.innerText = 'SAVE CHANGES';
+        btn.classList.add('active');
+        
+        const fieldMap = { 'prof-name': 'driverName', 'prof-email': 'email', 'prof-sex': 'sex', 'prof-phone': 'phone' };
+        
+        rows.forEach(row => {
+            const valEl = row.querySelector('.profile-value');
+            if (valEl && fieldMap[valEl.id]) {
+                const currentVal = valEl.innerText === '---' ? '' : valEl.innerText;
+                valEl.innerHTML = `<input type="text" class="profile-editable-input" value="${currentVal}" data-key="${fieldMap[valEl.id]}">`;
+            }
+        });
+    } else {
+        // Save Changes
+        const updates = {};
+        rows.forEach(row => {
+            const input = row.querySelector('input');
+            if (input) {
+                updates[input.getAttribute('data-key')] = input.value.trim();
+            }
+        });
+        
+        try {
+            await db.collection('users').doc(auth.currentUser.uid).update(updates);
+            currentUserData = { ...currentUserData, ...updates };
+            logEvent('PROFILE: Information updated successfully.', 't-succ');
+        } catch (e) {
+            logEvent('PROFILE: Failed to save changes.', 't-warn');
+        }
+        
+        isProfileEditing = false;
+        btn.innerText = 'EDIT PROFILE';
+        btn.classList.remove('active');
+        renderProfile();
+    }
+}
+
+// ── Dashboard Animations ──────────────────────────────────
+function animateValue(id, start, end, duration, suffix = '') {
+    const obj = document.getElementById(id);
+    if (!obj) return;
+    let startTimestamp = null;
+    const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        const current = Math.floor(progress * (end - start) + start);
+        obj.innerHTML = current + suffix;
+        if (progress < 1) {
+            window.requestAnimationFrame(step);
+        }
+    };
+    window.requestAnimationFrame(step);
+}
+
+// Update startSystem to add pulse
+const _origStartSystem = startSystem;
+startSystem = async function() {
+    await _origStartSystem();
+    if (isRunning) {
+        document.querySelectorAll('.stat-card').forEach(c => c.classList.add('active-monitoring'));
+    }
+};
+
+async function signOut() {
+    try {
+        await auth.signOut();
+        window.location.replace('login.html');
+    } catch (e) {
+        console.error('Sign out error:', e);
+    }
+}
+

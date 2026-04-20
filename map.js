@@ -10,6 +10,8 @@
 let dwMap = null;
 let mapInitialized = false;
 let userMarker = null;
+let currentRouteLayer = null; // OSRM Path
+let activeRouteData = null;   // Stored destination coords + instructions
 let hazardLayers = [];   // OSM Overpass layers
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -58,6 +60,129 @@ function initMap() {
         placeUserDot(lat, lng);
         refreshAllMapData(lat, lng);
     }
+
+    // Attach search and routing listeners
+    const searchBtn = document.getElementById('btn-route-go');
+    const searchInput = document.getElementById('map-search-input');
+    const clearBtn = document.getElementById('btn-route-clear');
+
+    if (searchBtn) searchBtn.onclick = () => startRouting();
+    if (searchInput) {
+        searchInput.onkeypress = (e) => { if (e.key === 'Enter') startRouting(); };
+    }
+    if (clearBtn) clearBtn.onclick = () => clearActiveRoute();
+}
+
+// ── Routing Logic (OSRM) ──────────────────────────────────
+async function startRouting() {
+    const query = document.getElementById('map-search-input')?.value.trim();
+    if (!query || !currentGeoPosition) {
+        logEvent('MAP: Enter a destination and ensure GPS is active.', 't-warn');
+        return;
+    }
+
+    const searchInput = document.getElementById('map-search-input');
+    const searchBtn = document.getElementById('btn-route-go');
+
+    logEvent(`MAP: Searching for "${query}"...`, 't-info');
+    if (searchInput) searchInput.disabled = true;
+    if (searchBtn) searchBtn.style.opacity = '0.5';
+
+    try {
+        // Step 1: Geocode (Nominatim) - Added User-Agent for better reliability
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
+            headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' }
+        });
+        const geoData = await geoRes.json();
+
+        if (!geoData || geoData.length === 0) {
+            logEvent('MAP: Location not found. Try a more specific name.', 't-warn');
+            return;
+        }
+
+        const destLat = parseFloat(geoData[0].lat);
+        const destLng = parseFloat(geoData[0].lon);
+        const locationName = geoData[0].display_name.split(',')[0];
+
+        // Step 2: Route (OSRM)
+        const startLat = Number(currentGeoPosition.lat);
+        const startLng = Number(currentGeoPosition.lng);
+        
+        const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${destLng},${destLat}?overview=full&geometries=geojson`);
+        const routeData = await routeRes.json();
+
+        if (routeData.code !== 'Ok' || !routeData.routes?.length) {
+            logEvent('MAP: No drivable route found to that target.', 't-warn');
+            return;
+        }
+
+        const route = routeData.routes[0];
+        activeRouteData = {
+            dest: { lat: destLat, lng: destLng },
+            distance: route.distance, 
+            duration: route.duration  
+        };
+
+        drawRouteOnMap(route.geometry);
+        updateRoutePanel(route.distance, route.duration);
+        
+        logEvent(`MAP: Destination set to ${locationName}.`, 't-succ');
+        
+        if (dwMap) {
+           const poly = L.geoJSON(route.geometry);
+           dwMap.fitBounds(poly.getBounds(), { padding: [60, 60], animate: true });
+        }
+    } catch (e) {
+        console.error('Routing Error:', e);
+        logEvent('MAP: Service unavailable. Check your internet.', 't-warn');
+    } finally {
+        if (searchInput) searchInput.disabled = false;
+        if (searchBtn) searchBtn.style.opacity = '1';
+    }
+}
+
+function drawRouteOnMap(geometry) {
+    if (currentRouteLayer && dwMap) dwMap.removeLayer(currentRouteLayer);
+    
+    currentRouteLayer = L.geoJSON(geometry, {
+        style: {
+            color: '#6366f1',
+            weight: 6,
+            opacity: 0.8,
+            lineCap: 'round'
+        }
+    }).addTo(dwMap);
+}
+
+function updateRoutePanel(distMeters, durSeconds) {
+    const panel = document.getElementById('route-info-panel');
+    const etaVal = document.getElementById('route-eta-val');
+    const distVal = document.getElementById('route-dist-val');
+    if (!panel) return;
+
+    panel.classList.remove('hidden');
+
+    const km = (distMeters / 1000).toFixed(1);
+    const mins = Math.ceil(durSeconds / 60);
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+
+    distVal.innerText = `${km} km`;
+    etaVal.innerText = hours > 0 ? `${hours}h ${remMins}m` : `${mins} min`;
+}
+
+function clearActiveRoute() {
+    if (currentRouteLayer && dwMap) dwMap.removeLayer(currentRouteLayer);
+    currentRouteLayer = null;
+    activeRouteData = null;
+    
+    const panel = document.getElementById('route-info-panel');
+    if (panel) panel.classList.add('hidden');
+    
+    const input = document.getElementById('map-search-input');
+    if (input) input.value = '';
+    
+    logEvent('MAP: Route cleared.', 't-info');
 }
 
 // ── User dot ─────────────────────────────────────────────
@@ -80,6 +205,19 @@ function placeUserDot(lat, lng) {
 function onGpsUpdateForMap(lat, lng) {
     if (!mapInitialized) return;
     placeUserDot(lat, lng);
+
+    // If active route, update ETA or check if arrived
+    if (activeRouteData) {
+        const d = haversineKm(lat, lng, activeRouteData.dest.lat, activeRouteData.dest.lng);
+        if (d < 0.05) { // 50m arrival
+            logEvent('MAP: Arrival reached. Navigation complete.', 't-succ');
+            clearActiveRoute();
+        } else {
+            // Passive update: just update the distance remaining
+            const distVal = document.getElementById('route-dist-val');
+            if (distVal) distVal.innerText = `${d.toFixed(1)} km`;
+        }
+    }
 
     const now = Date.now();
     const moved = lastHazardFetchPos

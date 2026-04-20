@@ -36,7 +36,7 @@
       <span class="logo-text">DRIVERWATCH <span class="version">v7.0</span></span>
     </div>
 
-    <div id="nav-system-tag" class="sys-badge">SYS: STANDBY</div>
+
 
     <div style="display:flex;align-items:center;gap:8px;">
       <span class="nav-clock" id="nav-clock">00:00:00</span>
@@ -67,7 +67,7 @@
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
               <circle cx="12" cy="12" r="3"/>
             </svg>
-            <div class="standby-text">AWAITING INITIALIZATION</div>
+            <div class="standby-text">TAP START TO BEGIN</div>
           </div>
         </div>
 
@@ -164,19 +164,48 @@
       </div>
     </section><!-- /tab-vault -->
 
-    <!-- ══ LOG TAB ══════════════════════════════ -->
-    <section id="tab-log" class="tab-panel">
-      <div class="log-panel">
-        <div class="panel-header-row">
-          <span class="panel-title">SYSTEM LOG</span>
-          <button class="btn-sm" id="clear-log-btn">CLEAR</button>
+
+
+    <!-- ══ PROFILE TAB ════════════════════════════════ -->
+    <section id="tab-profile" class="tab-panel">
+      <div class="panel-header-row" style="padding: 16px;">
+        <span class="panel-title">OPERATOR PROFILE</span>
+      </div>
+      <div style="padding: 0 16px 24px;">
+        <div class="profile-header-card">
+          <div class="profile-avatar-circle" id="profile-avatar-initials">?</div>
+          <div id="profile-display-name" style="font-family:var(--font-display); font-size:1.4rem; font-weight:800; color:var(--text); margin-bottom:4px;">---</div>
+          <button class="btn-toggle-edit" onclick="toggleProfileEdit()" id="btn-edit-profile">EDIT PROFILE</button>
         </div>
-        <div class="terminal-container" id="activity-log">
-          <div class="terminal-line">[SYS] Waiting for monitoring to begin…</div>
+
+        <div class="profile-info-stack">
+          <div class="profile-row">
+            <span class="profile-label">Full Name</span>
+            <span class="profile-value" id="prof-name">---</span>
+          </div>
+          <div class="profile-row">
+            <span class="profile-label">Email</span>
+            <span class="profile-value" id="prof-email">---</span>
+          </div>
+          <div class="profile-row">
+            <span class="profile-label">Sex / Demographic</span>
+            <span class="profile-value" id="prof-sex">---</span>
+          </div>
+          <div class="profile-row">
+            <span class="profile-label">Phone</span>
+            <span class="profile-value" id="prof-phone">---</span>
+          </div>
+          <div class="profile-row" style="margin-top:20px; border-color:var(--border-hi);">
+            <span class="profile-label">Emergency Contact</span>
+            <span class="profile-value" id="prof-ec">---</span>
+          </div>
+        </div>
+
+        <div class="profile-actions">
+           <button class="btn-sm" style="height:48px; border-color:var(--danger); color:var(--danger);" onclick="signOut()">SECURE LOG OUT</button>
         </div>
       </div>
-    </section><!-- /tab-log -->
-
+    </section><!-- /tab-profile -->
     <!-- ══ MAP TAB ════════════════════════════════ -->
     <section id="tab-map" class="tab-panel">
       <div class="map-wrapper">
@@ -229,11 +258,12 @@
       </svg>
       <span class="nav-tab-label">VAULT</span>
     </button>
-    <button class="nav-tab" id="nav-tab-log" onclick="switchTab('log')" aria-label="System Log">
+    <button class="nav-tab" id="nav-tab-profile" onclick="switchTab('profile')" aria-label="Profile">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
       </svg>
-      <span class="nav-tab-label">LOG</span>
+      <span class="nav-tab-label">PROFILE</span>
     </button>
     <button class="nav-tab" id="nav-tab-map" onclick="switchTab('map')" aria-label="Route Advisor">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -311,7 +341,7 @@
         <span>VAULT PLAYBACK</span>
         <button class="btn-close-vault" onclick="closeVaultPlayer()">CLOSE</button>
       </div>
-      <video id="vault-player" controls style="width:100%;aspect-ratio:16/9;background:#000;display:block;"></video>
+      <video id="vault-player" crossorigin="anonymous" controls playsinline webkit-playsinline style="width:100%;aspect-ratio:16/9;background:#000;display:block;"></video>
     </div>
   </div>
 

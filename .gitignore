@@ -1,8 +1,9 @@
-# Environment Variables - NEVER commit this file
-.env
-
-# Dependencies
 node_modules/
+www/
+android/
+.env
+.DS_Store
+__pycache__/
+*.diff
+*.txt
 
-# Build output
-.vercel/

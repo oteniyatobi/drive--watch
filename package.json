@@ -3,9 +3,17 @@
     "version": "1.0.0",
     "description": "DriverWatch Enterprise Safety System",
     "scripts": {
-        "start": "npx serve . --listen 3000"
+        "start": "npx serve . --listen 3000",
+        "build:web": "node scripts/build-web.js",
+        "cap:sync": "npm run build:web && npx cap sync android",
+        "cap:open": "npx cap open android",
+        "cap:run": "npm run build:web && npx cap run android"
     },
     "dependencies": {
+        "@capacitor/android": "^8.3.1",
+        "@capacitor/cli": "^8.3.1",
+        "@capacitor/core": "^8.3.1",
+        "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
         "@supabase/supabase-js": "^2.49.1",
         "firebase-admin": "^12.7.0",
         "twilio": "^5.0.0"

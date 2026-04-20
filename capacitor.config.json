@@ -1,0 +1,28 @@
+{
+  "appId": "com.driverwatch.enterprise",
+  "appName": "DriverWatch",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 3000,
+      "launchAutoHide": true,
+      "backgroundColor": "#0a0f1e",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_INSIDE",
+      "showSpinner": false
+    },
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "157675587246-1f3t2ru22los9c0dmdd9s1ritcjbvb0c.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
+    }
+  }
+}
