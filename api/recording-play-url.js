@@ -3,7 +3,7 @@
 // Cloudinary URLs are publicly accessible by default — no signed URL generation needed.
 // Env: FIREBASE_SERVICE_ACCOUNT_JSON
 
-const { getFirebaseAdmin } = require('./lib/firebaseAdmin');
+const { getFirebaseAdmin } = require('./_lib/firebaseAdmin');
 
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {

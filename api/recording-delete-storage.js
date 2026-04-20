@@ -3,8 +3,8 @@
 // Security: publicId must be under the user's own folder in Cloudinary.
 // Env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON
 
-const { getFirebaseAdmin }  = require('./lib/firebaseAdmin');
-const { getCloudinaryConfig, generateSignature } = require('./lib/cloudinaryAdmin');
+const { getFirebaseAdmin }  = require('./_lib/firebaseAdmin');
+const { getCloudinaryConfig, generateSignature } = require('./_lib/cloudinaryAdmin');
 
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {

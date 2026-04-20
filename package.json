@@ -18,5 +18,8 @@
         "@supabase/supabase-js": "^2.49.1",
         "firebase-admin": "^12.7.0",
         "twilio": "^5.0.0"
+    },
+    "engines": {
+        "node": ">=20.0.0"
     }
 }
