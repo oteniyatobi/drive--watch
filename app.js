@@ -2187,32 +2187,62 @@ async function toggleProfileEdit() {
         rows.forEach(row => {
             const valEl = row.querySelector('.profile-value');
             if (valEl && fieldMap[valEl.id]) {
+                const key = fieldMap[valEl.id];
                 const currentVal = valEl.innerText === '---' ? '' : valEl.innerText;
-                valEl.innerHTML = `<input type="text" class="profile-editable-input" value="${currentVal}" data-key="${fieldMap[valEl.id]}">`;
+                
+                if (key === 'sex') {
+                    const options = ['Male', 'Female', 'Non-Binary', 'Other', 'Private'];
+                    let selectHtml = `<select class="profile-editable-input" data-key="${key}">`;
+                    options.forEach(opt => {
+                        const selected = (currentVal === opt || (opt === 'Private' && currentVal === 'Prefer not to say')) ? 'selected' : '';
+                        selectHtml += `<option value="${opt}" ${selected}>${opt === 'Private' ? 'Prefer not to say' : opt}</option>`;
+                    });
+                    selectHtml += `</select>`;
+                    valEl.innerHTML = selectHtml;
+                } else {
+                    const type = key === 'email' ? 'email' : (key === 'phone' ? 'tel' : 'text');
+                    valEl.innerHTML = `<input type="${type}" class="profile-editable-input" value="${currentVal}" data-key="${key}" required>`;
+                }
             }
         });
     } else {
         // Save Changes
         const updates = {};
+        let isValid = true;
+        
         rows.forEach(row => {
-            const input = row.querySelector('input');
+            const input = row.querySelector('input, select');
             if (input) {
-                updates[input.getAttribute('data-key')] = input.value.trim();
+                const key = input.getAttribute('data-key');
+                const val = input.value.trim();
+                
+                // Simple Validation
+                if (!val && input.hasAttribute('required')) {
+                    isValid = false;
+                    logEvent(`PROFILE: ${key.toUpperCase()} cannot be empty.`, 't-warn');
+                }
+                if (key === 'email' && val && !val.includes('@')) {
+                    isValid = false;
+                    logEvent('PROFILE: Invalid email address format.', 't-warn');
+                }
+                
+                updates[key] = val;
             }
         });
         
+        if (!isValid) return;
+
         try {
             await db.collection('users').doc(auth.currentUser.uid).update(updates);
             currentUserData = { ...currentUserData, ...updates };
             logEvent('PROFILE: Information updated successfully.', 't-succ');
+            isProfileEditing = false;
+            btn.innerText = 'EDIT PROFILE';
+            btn.classList.remove('active');
+            renderProfile();
         } catch (e) {
             logEvent('PROFILE: Failed to save changes.', 't-warn');
         }
-        
-        isProfileEditing = false;
-        btn.innerText = 'EDIT PROFILE';
-        btn.classList.remove('active');
-        renderProfile();
     }
 }
 

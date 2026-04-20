@@ -272,6 +272,7 @@ document.getElementById('onboarding-view').addEventListener('submit', async (e) 
 
     const driverName = document.getElementById('onbDriverName').value;
     const contactName = document.getElementById('onbContactName').value;
+    const contactSex = document.getElementById('onbSex').value;
     const contactPhone = phoneInputOnb.getNumber();
 
     const errorDiv = document.getElementById('onb-error');
@@ -295,6 +296,8 @@ document.getElementById('onboarding-view').addEventListener('submit', async (e) 
                 // Insert to Firestore (includes location consent for compliance record)
                 await db.collection('users').doc(currentAuthenticatedUser.uid).set({
                     driverName: driverName,
+                    sex: contactSex,
+                    email: currentAuthenticatedUser.email || '',
                     emergencyContact: {
                         name: contactName,
                         phone: contactPhone
