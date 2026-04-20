@@ -1,6 +1,11 @@
 node_modules/
 www/
-android/
+# android/ (un-ignored to track native changes)
+android/local.properties
+android/app/build/
+android/.gradle/
+android/.idea/
+android/app/google-services*.json
 .env
 .DS_Store
 __pycache__/
