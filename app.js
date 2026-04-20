@@ -1834,9 +1834,9 @@ function renderVaultTable(filterText) {
                 <span class="vault-ref">REF ${refId}</span>
             </div>
             <div class="vault-actions">
-                <button type="button" class="btn-play" onclick="void playVideo(${JSON.stringify(video.id)}, ${video.isLocal}, ${JSON.stringify(video.url || '')})">PLAY</button>
-                <button type="button" class="btn-copy-ref" title="Copy reference for your records" onclick="copyVaultReference(${JSON.stringify(video.id)}, ${JSON.stringify(video.referenceId || makeReferenceId(video.id))}, ${JSON.stringify(video.type)}, ${JSON.stringify(String(video.timestamp))})">REF</button>
-                <button type="button" class="btn-del" onclick="deleteVideo(${JSON.stringify(video.id)}, ${video.isLocal})">DEL</button>
+                <button type="button" class="btn-play" onclick='playVideo(${JSON.stringify(video.id)}, ${video.isLocal}, ${JSON.stringify(video.url || "")})'>PLAY</button>
+                <button type="button" class="btn-copy-ref" title="Copy reference for your records" onclick='copyVaultReference(${JSON.stringify(video.id)}, ${JSON.stringify(video.referenceId || makeReferenceId(video.id))}, ${JSON.stringify(video.type)}, ${JSON.stringify(String(video.timestamp))})'>REF</button>
+                <button type="button" class="btn-del" onclick='deleteVideo(${JSON.stringify(video.id)}, ${video.isLocal})'>DEL</button>
             </div>
         `;
         vaultContainer.appendChild(item);
@@ -1959,16 +1959,12 @@ function startPlayback(url) {
     const modal = document.getElementById('vault-modal');
     if (!player || !modal) return;
 
-    if (player.src && player.src.startsWith('blob:')) {
-        window.URL.revokeObjectURL(player.src);
-    }
-
     // Force MP4 transcoding on-the-fly via Cloudinary for mobile compatibility 
     let playUrl = url;
-    if (/cloudinary\.com/.test(url)) {
-        if (/\.webm(\?|$)/.test(url)) {
-            playUrl = url.replace(/\.webm(\?|$)/, '.mp4$1');
-        } else if (!/\.mp4(\?|$)/.test(url)) {
+    if (url.includes('cloudinary.com')) {
+        if (url.endsWith('.webm')) {
+            playUrl = url.replace(/\.webm$/, '.mp4');
+        } else if (!url.endsWith('.mp4')) {
             const parts = url.split('/');
             if (!parts[parts.length - 1].includes('.')) {
                 playUrl = url + ".mp4";
@@ -1976,36 +1972,26 @@ function startPlayback(url) {
         }
     }
 
-    player.src = playUrl;
-    modal.classList.remove('hidden');
+    // Clean up previous listeners and source
+    const newPlayer = player.cloneNode(true);
+    player.parentNode.replaceChild(newPlayer, player);
     
-    // Smooth entrance
-    player.style.opacity = '0';
-    player.load();
-    player.oncanplay = () => {
-        player.style.transition = 'opacity 0.5s ease';
-        player.style.opacity = '1';
-        player.play().catch(e => console.warn('Autoplay blocked:', e));
+    newPlayer.src = playUrl;
+    modal.classList.remove('hidden');
+    newPlayer.style.opacity = '0';
+
+    newPlayer.oncanplay = () => {
+        newPlayer.style.transition = 'opacity 0.5s ease';
+        newPlayer.style.opacity = '1';
+        newPlayer.play().catch(e => console.warn('Autoplay blocked:', e));
     };
 
-    // Must call load() first — setting src alone doesn't start buffering.
-    // Then wait for canplay before calling play(), otherwise play() rejects
-    // with a "no supported source" or "not ready" error and nothing happens.
-    player.load();
+    newPlayer.onerror = () => {
+        console.error('Video load error:', newPlayer.error);
+        logEvent('VAULT: Could not load video — file may still be processing.', 't-warn');
+    };
 
-    player.addEventListener('canplay', function onReady() {
-        player.removeEventListener('canplay', onReady);
-        player.play().catch(err => {
-            console.error('Playback failed:', err);
-            logEvent('VAULT: Playback failed — try a different browser or check your connection.', 't-warn');
-        });
-    }, { once: true });
-
-    player.addEventListener('error', function onErr() {
-        player.removeEventListener('error', onErr);
-        console.error('Video load error:', player.error);
-        logEvent('VAULT: Could not load video — file may still be processing on Cloudinary.', 't-warn');
-    }, { once: true });
+    newPlayer.load();
 }
 
 function closeVaultPlayer() {
