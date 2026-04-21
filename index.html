@@ -212,6 +212,28 @@
       <div class="map-wrapper">
         <div id="leaflet-map"></div>
 
+        <!-- Search + routing bar -->
+        <div class="map-search-container">
+          <input id="map-search-input" type="text" placeholder="Search destination..." autocomplete="off" />
+          <button id="btn-route-go" class="btn-pill btn-primary" style="height:48px;padding:0 18px;white-space:nowrap;">GO</button>
+          <button id="btn-route-clear" class="btn-pill" style="height:48px;padding:0 14px;background:rgba(17,17,24,0.92);border:1px solid var(--border-hi);color:var(--text-muted);white-space:nowrap;">CLR</button>
+        </div>
+
+        <!-- Route info card (hidden until route active) -->
+        <div id="route-info-panel" class="route-info-card hidden">
+          <div class="route-info-main">
+            <div class="route-eta-block">
+              <span class="route-eta-label">ETA</span>
+              <span class="route-eta-val" id="route-eta-val">--</span>
+            </div>
+            <div class="route-dist-block">
+              <span class="route-dist-label">DISTANCE</span>
+              <span class="route-dist-val" id="route-dist-val">-- km</span>
+            </div>
+          </div>
+          <button onclick="clearActiveRoute()" class="btn-pill" style="height:36px;padding:0 14px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;font-size:0.75rem;">END</button>
+        </div>
+
         <!-- Danger advisory toast (shown on proximity) -->
         <div id="map-advisory" class="map-advisory hidden">
           <div class="map-advisory-icon">⚠️</div>

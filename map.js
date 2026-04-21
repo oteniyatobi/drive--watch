@@ -425,6 +425,9 @@ function showMapAdvisory(text) {
     const textEl = document.getElementById('map-advisory-text');
     if (!el) return;
     if (textEl) textEl.innerText = escapeHtml(text);
+    // Shift up if route panel is visible so they don't overlap
+    const routePanel = document.getElementById('route-info-panel');
+    el.style.bottom = (routePanel && !routePanel.classList.contains('hidden')) ? '96px' : '10px';
     el.classList.remove('hidden');
     clearTimeout(el._hideTimer);
     el._hideTimer = setTimeout(() => el.classList.add('hidden'), 9000);
