@@ -59,85 +59,208 @@ function initMap() {
     if (currentGeoPosition) {
         placeUserDot(lat, lng);
         refreshAllMapData(lat, lng);
+    } else {
+        // Get GPS independently so map centers on user even without monitoring
+        navigator.geolocation.getCurrentPosition((pos) => {
+            const rlat = pos.coords.latitude;
+            const rlng = pos.coords.longitude;
+            if (dwMap) dwMap.setView([rlat, rlng], 15);
+            placeUserDot(rlat, rlng);
+            refreshAllMapData(rlat, rlng);
+        }, () => {}, { enableHighAccuracy: true, timeout: 8000 });
     }
 
-    // Attach search and routing listeners
-    const searchBtn = document.getElementById('btn-route-go');
-    const searchInput = document.getElementById('map-search-input');
-    const clearBtn = document.getElementById('btn-route-clear');
-
-    if (searchBtn) searchBtn.onclick = () => startRouting();
-    if (searchInput) {
-        searchInput.onkeypress = (e) => { if (e.key === 'Enter') startRouting(); };
-    }
-    if (clearBtn) clearBtn.onclick = () => clearActiveRoute();
+    initSearchListeners();
 }
 
-// ── Routing Logic (OSRM) ──────────────────────────────────
-async function startRouting() {
-    const query = document.getElementById('map-search-input')?.value.trim();
-    if (!query || !currentGeoPosition) {
-        logEvent('MAP: Enter a destination and ensure GPS is active.', 't-warn');
+// ── Routing Logic (OSRM + Nominatim autocomplete) ─────────
+
+let _searchDebounce = null;
+let _lastOrigin = null; // cached GPS for search bias
+
+function setMapStatusMsg(msg, color) {
+    const el = document.getElementById('map-status-bar');
+    if (el) { el.innerText = msg; if (color) el.style.color = color; }
+    setTimeout(() => { if (el) el.style.color = ''; }, 4000);
+}
+
+async function getPositionForRouting() {
+    if (currentGeoPosition) return currentGeoPosition;
+    if (_lastOrigin) return _lastOrigin;
+    return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                _lastOrigin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                resolve(_lastOrigin);
+            },
+            (err) => reject(err),
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    });
+}
+
+function closeDropdown() {
+    const dd = document.getElementById('map-search-dropdown');
+    if (dd) { dd.innerHTML = ''; dd.classList.remove('open'); }
+}
+
+async function fetchSuggestions(query) {
+    if (!query || query.length < 3) { closeDropdown(); return; }
+
+    let biasParams = '';
+    try {
+        const pos = await getPositionForRouting();
+        // viewbox ~100km around user, not bounded so we still get results outside if needed
+        const d = 0.9;
+        biasParams = `&viewbox=${pos.lng - d},${pos.lat + d},${pos.lng + d},${pos.lat - d}&bounded=0`;
+    } catch (_) {}
+
+    try {
+        const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=6&addressdetails=1${biasParams}`,
+            { headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' } }
+        );
+        const results = await res.json();
+        showDropdown(results);
+    } catch (_) { closeDropdown(); }
+}
+
+function showDropdown(results) {
+    const dd = document.getElementById('map-search-dropdown');
+    if (!dd) return;
+    dd.innerHTML = '';
+
+    if (!results || results.length === 0) {
+        closeDropdown();
         return;
     }
 
-    const searchInput = document.getElementById('map-search-input');
-    const searchBtn = document.getElementById('btn-route-go');
+    results.forEach((r) => {
+        const item = document.createElement('div');
+        item.className = 'map-search-result';
 
-    logEvent(`MAP: Searching for "${query}"...`, 't-info');
+        const name = r.display_name.split(',')[0];
+        const sub  = r.display_name.split(',').slice(1, 3).join(',').trim();
+
+        item.innerHTML = `<span class="map-search-result-name">${escapeHtml(name)}</span><span class="map-search-result-sub">${escapeHtml(sub)}</span>`;
+
+        item.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // prevent input blur before click fires
+            const input = document.getElementById('map-search-input');
+            if (input) input.value = name;
+            closeDropdown();
+            routeToCoords(parseFloat(r.lat), parseFloat(r.lon), name);
+        });
+
+        dd.appendChild(item);
+    });
+
+    dd.classList.add('open');
+}
+
+function initSearchListeners() {
+    const searchInput = document.getElementById('map-search-input');
+    const searchBtn   = document.getElementById('btn-route-go');
+    const clearBtn    = document.getElementById('btn-route-clear');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            clearTimeout(_searchDebounce);
+            _searchDebounce = setTimeout(() => fetchSuggestions(searchInput.value.trim()), 350);
+        });
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { closeDropdown(); startRouting(); }
+            if (e.key === 'Escape') closeDropdown();
+        });
+        searchInput.addEventListener('blur', () => {
+            setTimeout(closeDropdown, 150); // delay so mousedown on result fires first
+        });
+    }
+    if (searchBtn) searchBtn.onclick = () => { closeDropdown(); startRouting(); };
+    if (clearBtn)  clearBtn.onclick  = () => clearActiveRoute();
+}
+
+async function startRouting() {
+    const query = document.getElementById('map-search-input')?.value.trim();
+    if (!query) { setMapStatusMsg('Type a destination first.', '#f59e0b'); return; }
+
+    const searchInput = document.getElementById('map-search-input');
+    const searchBtn   = document.getElementById('btn-route-go');
     if (searchInput) searchInput.disabled = true;
-    if (searchBtn) searchBtn.style.opacity = '0.5';
+    if (searchBtn)   { searchBtn.innerText = '...'; searchBtn.style.opacity = '0.5'; }
+    setMapStatusMsg('Getting your location...');
+
+    let origin;
+    try {
+        origin = await getPositionForRouting();
+    } catch (e) {
+        setMapStatusMsg('GPS unavailable — enable location and try again.', '#ef4444');
+        if (searchInput) searchInput.disabled = false;
+        if (searchBtn)   { searchBtn.innerText = 'GO'; searchBtn.style.opacity = '1'; }
+        return;
+    }
+
+    setMapStatusMsg(`Searching for "${query}"...`);
 
     try {
-        // Step 1: Geocode (Nominatim) - Added User-Agent for better reliability
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
-            headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' }
-        });
+        const d = 0.9;
+        const biasParams = `&viewbox=${origin.lng - d},${origin.lat + d},${origin.lng + d},${origin.lat - d}&bounded=0`;
+        const geoRes  = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1${biasParams}`,
+            { headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' } }
+        );
         const geoData = await geoRes.json();
 
         if (!geoData || geoData.length === 0) {
-            logEvent('MAP: Location not found. Try a more specific name.', 't-warn');
+            setMapStatusMsg('Location not found — try a more specific name.', '#ef4444');
             return;
         }
 
-        const destLat = parseFloat(geoData[0].lat);
-        const destLng = parseFloat(geoData[0].lon);
-        const locationName = geoData[0].display_name.split(',')[0];
+        await routeToCoords(parseFloat(geoData[0].lat), parseFloat(geoData[0].lon), geoData[0].display_name.split(',')[0], origin);
+    } catch (e) {
+        console.error('Routing Error:', e);
+        setMapStatusMsg('Routing service unavailable — check your internet.', '#ef4444');
+    } finally {
+        if (searchInput) searchInput.disabled = false;
+        if (searchBtn)   { searchBtn.innerText = 'GO'; searchBtn.style.opacity = '1'; }
+    }
+}
 
-        // Step 2: Route (OSRM)
-        const startLat = Number(currentGeoPosition.lat);
-        const startLng = Number(currentGeoPosition.lng);
-        
-        const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${destLng},${destLat}?overview=full&geometries=geojson`);
+async function routeToCoords(destLat, destLng, locationName, origin) {
+    const searchBtn = document.getElementById('btn-route-go');
+    if (!origin) {
+        try { origin = await getPositionForRouting(); }
+        catch (e) { setMapStatusMsg('GPS unavailable.', '#ef4444'); return; }
+    }
+    if (searchBtn) { searchBtn.innerText = '...'; searchBtn.style.opacity = '0.5'; }
+    setMapStatusMsg(`Routing to ${locationName}...`);
+
+    try {
+        const routeRes  = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destLng},${destLat}?overview=full&geometries=geojson`);
         const routeData = await routeRes.json();
 
         if (routeData.code !== 'Ok' || !routeData.routes?.length) {
-            logEvent('MAP: No drivable route found to that target.', 't-warn');
+            setMapStatusMsg('No drivable route found to that location.', '#ef4444');
             return;
         }
 
         const route = routeData.routes[0];
-        activeRouteData = {
-            dest: { lat: destLat, lng: destLng },
-            distance: route.distance, 
-            duration: route.duration  
-        };
+        activeRouteData = { dest: { lat: destLat, lng: destLng }, distance: route.distance, duration: route.duration };
 
         drawRouteOnMap(route.geometry);
         updateRoutePanel(route.distance, route.duration);
-        
+        setMapStatusMsg(`Navigating to ${locationName}`);
         logEvent(`MAP: Destination set to ${locationName}.`, 't-succ');
-        
+
         if (dwMap) {
-           const poly = L.geoJSON(route.geometry);
-           dwMap.fitBounds(poly.getBounds(), { padding: [60, 60], animate: true });
+            const poly = L.geoJSON(route.geometry);
+            dwMap.fitBounds(poly.getBounds(), { padding: [60, 60], animate: true });
         }
     } catch (e) {
-        console.error('Routing Error:', e);
-        logEvent('MAP: Service unavailable. Check your internet.', 't-warn');
+        console.error('Route draw error:', e);
+        setMapStatusMsg('Routing service unavailable.', '#ef4444');
     } finally {
-        if (searchInput) searchInput.disabled = false;
-        if (searchBtn) searchBtn.style.opacity = '1';
+        if (searchBtn) { searchBtn.innerText = 'GO'; searchBtn.style.opacity = '1'; }
     }
 }
 

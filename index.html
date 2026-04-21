@@ -214,9 +214,12 @@
 
         <!-- Search + routing bar -->
         <div class="map-search-container">
-          <input id="map-search-input" type="text" placeholder="Search destination..." autocomplete="off" />
-          <button id="btn-route-go" class="btn-pill btn-primary" style="height:48px;padding:0 18px;white-space:nowrap;">GO</button>
-          <button id="btn-route-clear" class="btn-pill" style="height:48px;padding:0 14px;background:rgba(17,17,24,0.92);border:1px solid var(--border-hi);color:var(--text-muted);white-space:nowrap;">CLR</button>
+          <div class="map-search-row">
+            <input id="map-search-input" type="text" placeholder="Search destination..." autocomplete="off" />
+            <button id="btn-route-go" class="btn-pill btn-primary" style="height:48px;padding:0 18px;white-space:nowrap;">GO</button>
+            <button id="btn-route-clear" class="btn-pill" style="height:48px;padding:0 14px;background:rgba(17,17,24,0.92);border:1px solid var(--border-hi);color:var(--text-muted);white-space:nowrap;">CLR</button>
+          </div>
+          <div id="map-search-dropdown"></div>
         </div>
 
         <!-- Route info card (hidden until route active) -->
