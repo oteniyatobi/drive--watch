@@ -57,6 +57,8 @@ function initMap() {
     logEvent('MAP: Route Advisor initialized.', 't-info');
 
     if (currentGeoPosition) {
+        _lastOrigin = { lat, lng };
+        resolveUserCountry(lat, lng);
         placeUserDot(lat, lng);
         refreshAllMapData(lat, lng);
     } else {
@@ -64,6 +66,8 @@ function initMap() {
         navigator.geolocation.getCurrentPosition((pos) => {
             const rlat = pos.coords.latitude;
             const rlng = pos.coords.longitude;
+            _lastOrigin = { lat: rlat, lng: rlng };
+            resolveUserCountry(rlat, rlng);
             if (dwMap) dwMap.setView([rlat, rlng], 15);
             placeUserDot(rlat, rlng);
             refreshAllMapData(rlat, rlng);
@@ -76,7 +80,8 @@ function initMap() {
 // ── Routing Logic (OSRM + Nominatim autocomplete) ─────────
 
 let _searchDebounce = null;
-let _lastOrigin = null; // cached GPS for search bias
+let _lastOrigin = null;     // cached GPS position
+let _userCountryCode = '';  // e.g. "rw" for Rwanda — set on first GPS fix
 
 function setMapStatusMsg(msg, color) {
     const el = document.getElementById('map-status-bar');
@@ -85,7 +90,10 @@ function setMapStatusMsg(msg, color) {
 }
 
 async function getPositionForRouting() {
-    if (currentGeoPosition) return currentGeoPosition;
+    if (currentGeoPosition) {
+        _lastOrigin = { lat: currentGeoPosition.lat, lng: currentGeoPosition.lng };
+        return _lastOrigin;
+    }
     if (_lastOrigin) return _lastOrigin;
     return new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
@@ -99,6 +107,16 @@ async function getPositionForRouting() {
     });
 }
 
+// Reverse-geocode once to get the country code for search filtering
+async function resolveUserCountry(lat, lng) {
+    if (_userCountryCode) return;
+    try {
+        const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' } });
+        const data = await res.json();
+        _userCountryCode = data?.address?.country_code || '';
+    } catch (_) {}
+}
+
 function closeDropdown() {
     const dd = document.getElementById('map-search-dropdown');
     if (dd) { dd.innerHTML = ''; dd.classList.remove('open'); }
@@ -107,25 +125,40 @@ function closeDropdown() {
 async function fetchSuggestions(query) {
     if (!query || query.length < 3) { closeDropdown(); return; }
 
-    let biasParams = '';
-    try {
-        const pos = await getPositionForRouting();
-        // viewbox ~100km around user, not bounded so we still get results outside if needed
-        const d = 0.9;
-        biasParams = `&viewbox=${pos.lng - d},${pos.lat + d},${pos.lng + d},${pos.lat - d}&bounded=0`;
-    } catch (_) {}
+    // Get position — if this fails we still search, just without bias
+    let pos = null;
+    try { pos = await getPositionForRouting(); } catch (_) {}
+
+    // Build location params: country code + viewbox tightly around user (~50km)
+    let locationParams = '';
+    if (pos) {
+        if (!_userCountryCode) resolveUserCountry(pos.lat, pos.lng); // fire and forget
+        const d = 0.45; // ~50km box
+        locationParams = `&viewbox=${pos.lng - d},${pos.lat + d},${pos.lng + d},${pos.lat - d}&bounded=1`;
+        if (_userCountryCode) locationParams += `&countrycodes=${_userCountryCode}`;
+    }
 
     try {
         const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=6&addressdetails=1${biasParams}`,
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=6&addressdetails=1${locationParams}`,
             { headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' } }
         );
-        const results = await res.json();
-        showDropdown(results);
+        let results = await res.json();
+
+        // If bounded search returned nothing, retry with country only (no box)
+        if ((!results || results.length === 0) && pos && _userCountryCode) {
+            const res2 = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=6&addressdetails=1&countrycodes=${_userCountryCode}`,
+                { headers: { 'User-Agent': 'DriverWatch-Enterprise/1.0' } }
+            );
+            results = await res2.json();
+        }
+
+        showDropdown(results, pos);
     } catch (_) { closeDropdown(); }
 }
 
-function showDropdown(results) {
+function showDropdown(results, userPos) {
     const dd = document.getElementById('map-search-dropdown');
     if (!dd) return;
     dd.innerHTML = '';
@@ -135,17 +168,32 @@ function showDropdown(results) {
         return;
     }
 
+    // Sort by distance from user if we have their position
+    if (userPos) {
+        results.sort((a, b) =>
+            haversineKm(userPos.lat, userPos.lng, parseFloat(a.lat), parseFloat(a.lon)) -
+            haversineKm(userPos.lat, userPos.lng, parseFloat(b.lat), parseFloat(b.lon))
+        );
+    }
+
     results.forEach((r) => {
         const item = document.createElement('div');
         item.className = 'map-search-result';
 
-        const name = r.display_name.split(',')[0];
-        const sub  = r.display_name.split(',').slice(1, 3).join(',').trim();
+        const parts = r.display_name.split(',');
+        const name  = parts[0].trim();
+        const sub   = parts.slice(1, 4).map(s => s.trim()).filter(Boolean).join(', ');
 
-        item.innerHTML = `<span class="map-search-result-name">${escapeHtml(name)}</span><span class="map-search-result-sub">${escapeHtml(sub)}</span>`;
+        let distLabel = '';
+        if (userPos) {
+            const km = haversineKm(userPos.lat, userPos.lng, parseFloat(r.lat), parseFloat(r.lon));
+            distLabel = km < 1 ? ` · ${Math.round(km * 1000)}m away` : ` · ${km.toFixed(1)}km away`;
+        }
+
+        item.innerHTML = `<span class="map-search-result-name">${escapeHtml(name)}</span><span class="map-search-result-sub">${escapeHtml(sub)}${distLabel}</span>`;
 
         item.addEventListener('mousedown', (e) => {
-            e.preventDefault(); // prevent input blur before click fires
+            e.preventDefault();
             const input = document.getElementById('map-search-input');
             if (input) input.value = name;
             closeDropdown();
