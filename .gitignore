@@ -11,4 +11,5 @@ android/app/google-services*.json
 __pycache__/
 *.diff
 *.txt
+.claude/
 
