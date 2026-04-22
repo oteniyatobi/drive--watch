@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>DriverWatch Enterprise</title>
+  <meta name="description" content="AI-powered fleet safety — real-time fatigue detection, dashcam, and emergency dispatch.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="style.css">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <!-- Firebase SDK Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
+</head>
+<body>
+
+  <!-- ── TOP BAR ─────────────────────────────── -->
+  <header class="top-bar">
+    <div class="top-bar-logo">
+      <div class="logo-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <rect x="2" y="2" width="20" height="20" rx="4"/>
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+        </svg>
+      </div>
+      <span class="logo-text">DRIVERWATCH <span class="version">v7.0</span></span>
+    </div>
+
+
+
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="nav-clock" id="nav-clock">00:00:00</span>
+      <button type="button" class="btn-icon" onclick="logout()" id="logout-btn" title="Logout">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- hidden operator tag (referenced by app.js) -->
+  <div style="display:none" id="nav-user-tag">OP: <span id="nav-operator-name">UNKNOWN</span></div>
+
+  <!-- ── MAIN ─────────────────────────────────── -->
+  <main class="app-main">
+
+    <!-- ══ MONITOR TAB ══════════════════════════ -->
+    <section id="tab-monitor" class="tab-panel active">
+
+      <!-- Camera Hero -->
+      <div class="camera-hero" id="camera-container">
+        <div id="webcam-wrapper">
+          <div class="standby-screen" id="startup-message">
+            <svg class="standby-icon" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <div class="standby-text">TAP START TO BEGIN</div>
+          </div>
+        </div>
+
+        <!-- HUD overlay (pointer-events:none so clicks reach canvas) -->
+        <div class="camera-overlay">
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+
+          <div class="cam-badge" id="camera-badge">INACTIVE</div>
+          <div class="live-dot" id="live-indicator"></div>
+
+          <div class="camera-bottom-hud">
+            <div class="rec-indicator">
+              <div class="rec-pulse" id="recording-dot"></div>
+              <span>REC</span>
+            </div>
+            <div class="fps-badge" id="footer-data-stream">FPS: --</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Driver Status Card -->
+      <div class="status-sheet">
+        <div class="status-card" id="main-status-card">
+          <div class="status-dot" id="header-status-dot"></div>
+          <div class="status-text">
+            <div class="status-title" id="big-status-label">NOT DETECTED</div>
+            <div class="status-sub"   id="big-status-sub">Awaiting video feed…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NN Prediction Bars -->
+      <div class="nn-section" id="label-container">
+        <!-- Populated by app.js -->
+        <div class="nn-row">
+          <div class="nn-label">—</div>
+          <div class="nn-track"><div class="nn-fill" style="width:0"></div></div>
+          <div class="nn-val">—</div>
+        </div>
+      </div>
+
+      <!-- Bento Metrics (6 tiles, 3 columns) -->
+      <div class="bento-grid">
+        <div class="bento-card">
+          <span class="bento-label">UPTIME</span>
+          <span class="bento-val" id="stat-uptime">00:00</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">SPEED</span>
+          <span class="bento-val" id="stat-speed">0 km/h</span>
+        </div>
+        <div class="bento-card" id="metric-box-limit">
+          <span class="bento-label">LIMIT</span>
+          <span class="bento-val" id="stat-limit">---</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">ALERTS</span>
+          <span class="bento-val" id="stat-alerts">00</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">DROWSY</span>
+          <span class="bento-val" id="stat-drowsy">0s</span>
+        </div>
+        <div class="bento-card">
+          <span class="bento-label">ACQ</span>
+          <span class="bento-val" id="stat-score">100%</span>
+        </div>
+      </div>
+
+      <!-- CTA Buttons -->
+      <div class="cta-zone">
+        <button id="start-btn" class="btn-pill btn-start">START MONITORING</button>
+        <button id="stop-btn" class="btn-pill btn-stop" disabled>END SESSION</button>
+      </div>
+
+    </section><!-- /tab-monitor -->
+
+    <!-- ══ VAULT TAB ════════════════════════════ -->
+    <section id="tab-vault" class="tab-panel">
+      <div class="vault-panel">
+        <div class="panel-header-row">
+          <span class="panel-title">MEDIA VAULT</span>
+          <button class="btn-sm" onclick="loadMediaVault()" id="vault-refresh-btn">REFRESH</button>
+        </div>
+        <p class="vault-hint-text">Recordings stored in Cloudinary cloud storage, with metadata in Firebase. Search or copy a reference for insurance or fleet records.</p>
+        <label class="sr-only" for="vault-search">Search recordings</label>
+        <input type="search" id="vault-search" class="search-input" placeholder="Search by reference, date, type…" autocomplete="off">
+        <div id="vault-list">
+          <div class="empty-data">INITIALIZING VAULT…</div>
+        </div>
+      </div>
+    </section><!-- /tab-vault -->
+
+
+
+    <!-- ══ PROFILE TAB ════════════════════════════════ -->
+    <section id="tab-profile" class="tab-panel">
+      <div class="panel-header-row" style="padding: 16px;">
+        <span class="panel-title">OPERATOR PROFILE</span>
+      </div>
+      <div style="padding: 0 16px 24px;">
+        <div class="profile-header-card">
+          <div class="profile-avatar-circle" id="profile-avatar-initials">?</div>
+          <div id="profile-display-name" style="font-family:var(--font-display); font-size:1.4rem; font-weight:800; color:var(--text); margin-bottom:4px;">---</div>
+          <button class="btn-toggle-edit" onclick="toggleProfileEdit()" id="btn-edit-profile">EDIT PROFILE</button>
+        </div>
+
+        <div class="profile-info-stack">
+          <div class="profile-row">
+            <span class="profile-label">Full Name</span>
+            <span class="profile-value" id="prof-name">---</span>
+          </div>
+          <div class="profile-row">
+            <span class="profile-label">Email</span>
+            <span class="profile-value" id="prof-email">---</span>
+          </div>
+          <div class="profile-row">
+            <span class="profile-label">Sex / Demographic</span>
+            <span class="profile-value" id="prof-sex">---</span>
+          </div>
+          <div class="profile-row">
+            <span class="profile-label">Phone</span>
+            <span class="profile-value" id="prof-phone">---</span>
+          </div>
+          <div class="profile-row" style="margin-top:20px; border-color:var(--border-hi);">
+            <span class="profile-label">Emergency Contact</span>
+            <span class="profile-value" id="prof-ec">---</span>
+          </div>
+        </div>
+
+        <div class="profile-actions">
+           <button class="btn-sm" style="height:48px; border-color:var(--danger); color:var(--danger);" onclick="signOut()">SECURE LOG OUT</button>
+        </div>
+      </div>
+    </section><!-- /tab-profile -->
+    <!-- ══ MAP TAB ════════════════════════════════ -->
+    <section id="tab-map" class="tab-panel">
+      <div class="map-wrapper">
+        <div id="leaflet-map"></div>
+
+        <!-- Search + routing controls (overlaid on map) -->
+        <div class="map-search-container">
+          <input type="text" id="map-search-input" placeholder="Enter destination…" autocomplete="off" aria-label="Destination search">
+          <button class="btn-sm" id="btn-route-go" aria-label="Get route">GO</button>
+          <button class="btn-sm" id="btn-route-clear" aria-label="Clear route">CLEAR</button>
+        </div>
+
+        <!-- Route info card (shown after route is drawn) -->
+        <div class="route-info-card hidden" id="route-info-panel">
+          <div class="route-info-main">
+            <div class="route-eta-block">
+              <span class="route-eta-label">ETA</span>
+              <span class="route-eta-val" id="route-eta-val">--</span>
+            </div>
+            <div class="route-dist-block">
+              <span class="route-dist-label">DISTANCE</span>
+              <span class="route-dist-val" id="route-dist-val">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Danger advisory toast (shown on proximity) -->
+        <div id="map-advisory" class="map-advisory hidden">
+          <div class="map-advisory-icon">⚠️</div>
+          <div>
+            <div class="map-advisory-title">DANGER ZONE AHEAD</div>
+            <div class="map-advisory-text" id="map-advisory-text">Known hazard — slow down.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Legend + status bar -->
+      <div class="map-bottom-bar">
+        <div class="map-status-bar" id="map-status-bar">Tap map to load hazard data</div>
+        <div class="map-legend">
+          <div class="map-legend-item"><span class="legend-dot" style="background:#ef4444"></span>Crash</div>
+          <div class="map-legend-item"><span class="legend-dot" style="background:#f59e0b"></span>Camera/Hazard</div>
+          <div class="map-legend-item"><span class="legend-dot" style="background:#6366f1"></span>Traffic</div>
+          <div class="map-legend-item"><span class="legend-dot" style="background:#60a5fa"></span>You</div>
+        </div>
+      </div>
+    </section><!-- /tab-map -->
+
+    <!-- ══ DESKTOP: right column wrapper ════════ -->
+    <!-- On mobile, tabs are switched. On desktop, vault + log sit side-by-side in this wrapper. -->
+    
+    <div class="app-footer" style="padding: 16px; text-align: center; font-family: var(--font-mono); font-size: 0.58rem; color: var(--text-muted); letter-spacing: 0.08em;">
+      POWERED BY <span style="color:var(--text); font-weight:700;">ARACLE STACKS</span>
+    </div>
+
+  </main>
+
+  <!-- ── BOTTOM NAVIGATION ────────────────────── -->
+  <nav class="bottom-nav" aria-label="App navigation">
+    <button class="nav-tab active" id="nav-tab-monitor" onclick="switchTab('monitor')" aria-label="Monitor">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span class="nav-tab-label">MONITOR</span>
+    </button>
+    <button class="nav-tab" id="nav-tab-vault" onclick="switchTab('vault')" aria-label="Vault">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="3" y="3" width="18" height="18" rx="3"/>
+        <path d="M9 8h6M9 12h6M9 16h4"/>
+      </svg>
+      <span class="nav-tab-label">VAULT</span>
+    </button>
+    <button class="nav-tab" id="nav-tab-profile" onclick="switchTab('profile')" aria-label="Profile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+      <span class="nav-tab-label">PROFILE</span>
+    </button>
+    <button class="nav-tab" id="nav-tab-map" onclick="switchTab('map')" aria-label="Route Advisor">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
+        <line x1="9" y1="3" x2="9" y2="18"/>
+        <line x1="15" y1="6" x2="15" y2="21"/>
+      </svg>
+      <span class="nav-tab-label">ROUTES</span>
+    </button>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════
+       OVERLAYS
+  ════════════════════════════════════════════ -->
+
+  <!-- ALARM -->
+  <div id="alarm-overlay" class="overlay-modal hidden">
+    <div class="modal-inner alarm-panel">
+      <div class="alarm-icon-ring">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <div class="alarm-topic-label" id="alarm-topic">CRITICAL FATIGUE DETECTED</div>
+      <div class="alarm-big-title"   id="alarm-title">DRIVER UNRESPONSIVE</div>
+      <div class="alarm-countdown-block">
+        <div class="alarm-countdown-lbl">EMERGENCY DISPATCH IN</div>
+        <div class="alarm-countdown-num" id="emergency-countdown">10</div>
+        <div class="alarm-countdown-lbl">SECONDS</div>
+      </div>
+      <button id="dismiss-alarm" class="btn-dismiss">I AM AWAKE — DISMISS ALARM</button>
+    </div>
+  </div>
+
+  <!-- EMERGENCY DISPATCH -->
+  <div id="emergency-overlay" class="overlay-modal hidden">
+    <div class="modal-inner dispatch-panel">
+      <div class="dispatch-hdr">
+        <div class="dispatch-icon-ring">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.83 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.75 1.1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="dispatch-topic"  id="emergency-topic">DISPATCH PROTOCOL INITIATED</div>
+          <div class="dispatch-status" id="emergency-status-text">CONNECTING RELAYS…</div>
+        </div>
+      </div>
+
+      <div class="dispatch-meta-box">
+        <div class="dispatch-meta-line">CONTACT 1: LOCAL DISPATCH (AUTO 911 RELAY)</div>
+        <div class="dispatch-meta-line">CONTACT 2: <span id="dispatch-contact-name">UNKNOWN</span> (<span id="dispatch-contact-phone">---</span>)</div>
+        <div class="dispatch-meta-line">LOCATION: <span id="dispatch-location">ACQUIRING GPS…</span></div>
+      </div>
+
+      <div class="progress-track">
+        <div class="transfer-fill" id="transfer-progress" style="width:0%"></div>
+      </div>
+
+      <div class="call-metrics">
+        <span>CALL DURATION: <span id="call-timer">00:00</span></span>
+        <span id="calling-dots">SIGNAL: <span class="online">STRONG</span></span>
+      </div>
+
+      <button id="cancel-emergency" class="btn-abort">ABORT PROTOCOL (FALSE POSITIVE)</button>
+    </div>
+  </div>
+
+  <!-- VAULT PLAYER -->
+  <div id="vault-modal" class="overlay-modal vault-modal-wrap hidden">
+    <div class="vault-player-panel">
+      <div class="vault-player-hdr">
+        <span>VAULT PLAYBACK</span>
+        <button class="btn-close-vault" onclick="closeVaultPlayer()">CLOSE</button>
+      </div>
+      <video id="vault-player" crossorigin="anonymous" controls playsinline webkit-playsinline style="width:100%;aspect-ratio:16/9;background:#000;display:block;"></video>
+    </div>
+  </div>
+
+  <!-- ── SCRIPTS ───────────────────────────────── -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <script src="app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="map.js"></script>
+  <script>
+    /* ── Tab switcher ─────────────────────────── */
+    function switchTab(name) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+      const panel = document.getElementById('tab-' + name);
+      const btn   = document.getElementById('nav-tab-' + name);
+      if (panel) panel.classList.add('active');
+      if (btn)   btn.classList.add('active');
+      // Init map lazily on first open
+      if (name === 'map' && typeof onMapTabOpened === 'function') {
+        setTimeout(onMapTabOpened, 80);
+      }
+    }
+
+    /* ── Service Worker ──────────────────────── */
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+          .then(() => console.log('[SW] Registered'))
+          .catch(e => console.warn('[SW] Failed:', e));
+      });
+    }
+  </script>
+
+</body>
+</html>

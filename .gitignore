@@ -1,5 +1,4 @@
 node_modules/
-www/
 # android/ (un-ignored to track native changes)
 android/local.properties
 android/app/build/

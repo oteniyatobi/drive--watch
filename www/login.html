@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>DriverWatch — Secure Login</title>
+  <meta name="description" content="DriverWatch Enterprise operator authentication portal.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- intl-tel-input -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js"></script>
+
+  <!-- Firebase SDK Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <style>
+    /* ── Auth-specific styles (extends style.css) ── */
+    body { padding-bottom: 0; align-items: stretch; overflow: hidden; }
+
+    /* ── Animated road-lines background ── */
+    .auth-page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      padding-top: calc(24px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Animated radial glow */
+    .auth-page::before {
+      content: '';
+      position: absolute; inset: 0; z-index: 0;
+      background:
+        radial-gradient(ellipse 70% 40% at 50% -5%, rgba(99,102,241,0.20), transparent 70%),
+        radial-gradient(ellipse 50% 60% at 20% 100%, rgba(34,211,238,0.08), transparent 50%),
+        radial-gradient(ellipse 50% 60% at 80% 100%, rgba(99,102,241,0.06), transparent 50%);
+      animation: glow-shift 8s ease-in-out infinite alternate;
+    }
+
+    /* Animated road lines moving downward */
+    .road-lines {
+      position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+    }
+    .road-line {
+      position: absolute;
+      width: 2px;
+      height: 60px;
+      background: linear-gradient(to bottom, transparent, rgba(99,102,241,0.15), transparent);
+      animation: road-move 3s linear infinite;
+      opacity: 0;
+    }
+    .road-line:nth-child(1) { left: 20%; animation-delay: 0s; animation-duration: 2.8s; }
+    .road-line:nth-child(2) { left: 35%; animation-delay: 0.6s; animation-duration: 3.4s; }
+    .road-line:nth-child(3) { left: 50%; animation-delay: 1.2s; animation-duration: 2.6s; }
+    .road-line:nth-child(4) { left: 65%; animation-delay: 0.3s; animation-duration: 3.1s; }
+    .road-line:nth-child(5) { left: 80%; animation-delay: 0.9s; animation-duration: 2.9s; }
+    .road-line:nth-child(6) { left: 10%; animation-delay: 1.5s; animation-duration: 3.3s; }
+    .road-line:nth-child(7) { left: 90%; animation-delay: 0.4s; animation-duration: 2.7s; }
+    .road-line:nth-child(8) { left: 45%; animation-delay: 1.8s; animation-duration: 3.0s; }
+
+    /* Scanning radar sweep */
+    .auth-page::after {
+      content: '';
+      position: absolute;
+      width: 300px; height: 300px;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: conic-gradient(from 0deg, transparent 0deg, rgba(99,102,241,0.06) 30deg, transparent 60deg);
+      animation: radar-sweep 4s linear infinite;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    @keyframes road-move {
+      0%   { top: -80px; opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: 110%; opacity: 0; }
+    }
+    @keyframes glow-shift {
+      0%   { opacity: 0.7; filter: hue-rotate(0deg); }
+      100% { opacity: 1;   filter: hue-rotate(15deg); }
+    }
+    @keyframes radar-sweep {
+      from { transform: translate(-50%, -50%) rotate(0deg); }
+      to   { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+    @keyframes logo-float {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-6px); }
+    }
+    @keyframes logo-glow-pulse {
+      0%, 100% { box-shadow: 0 0 24px rgba(99,102,241,0.4), 0 0 60px rgba(99,102,241,0.1); }
+      50%      { box-shadow: 0 0 36px rgba(99,102,241,0.7), 0 0 80px rgba(99,102,241,0.2); }
+    }
+    @keyframes entrance-up {
+      from { transform: translateY(30px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes entrance-scale {
+      from { transform: scale(0.8); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    @keyframes tagline-reveal {
+      from { width: 0; opacity: 0; }
+      to   { width: 100%; opacity: 1; }
+    }
+
+    /* Logo / Branding */
+    .auth-brand {
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+      margin-bottom: 32px;
+      position: relative; z-index: 1;
+      animation: entrance-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .auth-brand-icon {
+      width: 64px; height: 64px;
+      background: var(--primary-dim);
+      border: 1px solid rgba(99,102,241,0.45);
+      border-radius: 18px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--primary);
+      animation: logo-glow-pulse 3s ease-in-out infinite, logo-float 4s ease-in-out infinite;
+    }
+    .auth-brand-name {
+      font-family: var(--font-display); font-size: 1.5rem; font-weight: 800;
+      letter-spacing: -0.03em; color: var(--text);
+      animation: entrance-scale 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+    }
+    .auth-brand-name span { color: var(--primary); }
+    .auth-brand-sub {
+      font-family: var(--font-mono); font-size: 0.6rem;
+      letter-spacing: 0.15em; color: var(--text-muted); margin-top: -6px;
+      animation: entrance-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.35s both;
+    }
+    .auth-brand-tagline {
+      font-family: var(--font-body); font-size: 0.72rem;
+      color: var(--text-sub); letter-spacing: 0.02em;
+      margin-top: 2px;
+      animation: entrance-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.5s both;
+    }
+
+    /* Splash Mask */
+    #splash-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      transition: opacity 0.8s var(--ease), visibility 0.8s var(--ease);
+    }
+    #splash-overlay.fade-out { opacity: 0; visibility: hidden; }
+
+    .splash-logo-box {
+      width: 120px; height: 120px; border-radius: 32px;
+      background: var(--primary-dim); border: 2px solid var(--border-hi);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--primary); animation: splash-pulse 2s ease-in-out infinite;
+      box-shadow: 0 0 100px rgba(99,102,241,0.3);
+    }
+    @keyframes splash-pulse {
+      0%, 100% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(1.05); filter: brightness(1.3); }
+    }
+
+    /* Auth card hiding during splash */
+    .auth-brand, .auth-card { opacity: 0; transition: opacity 1s ease; }
+    .auth-ready .auth-brand, .auth-ready .auth-card { opacity: 1; }
+
+    /* Auth card */
+    .auth-card {
+      position: relative; z-index: 1;
+      animation: entrance-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.4s both;
+      width: 100%; max-width: 420px;
+      background: rgba(17,17,24,0.9);
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--r-lg);
+      padding: 28px 24px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+
+    /* Tab toggle */
+    .auth-toggle {
+      display: flex; margin-bottom: 24px;
+      background: var(--bg); border-radius: var(--r-pill);
+      border: 1px solid var(--border); overflow: hidden; padding: 3px;
+    }
+    .toggle-btn {
+      flex: 1; padding: 9px 8px; text-align: center;
+      font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em;
+      color: var(--text-muted); border-radius: var(--r-pill);
+      cursor: pointer; transition: all var(--dur) var(--ease); border: none;
+      background: none;
+    }
+    .toggle-btn.active {
+      background: var(--primary); color: #fff; font-weight: 700;
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+
+    /* Views */
+    #register-view, #onboarding-view, #verify-code-view { display: none; }
+
+    /* Form group */
+    .form-group { margin-bottom: 16px; position: relative; }
+    .form-label {
+      display: block; font-family: var(--font-mono); font-size: 0.6rem;
+      color: var(--text-muted); margin-bottom: 7px; letter-spacing: 0.08em;
+    }
+    .form-input {
+      width: 100%; padding: 13px 16px;
+      background: var(--glass-bg); border: 1px solid var(--border-hi);
+      border-radius: var(--r-md); color: var(--text);
+      font-family: var(--font-body); font-size: 0.95rem;
+      transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+    }
+    .form-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-dim); outline: none;
+    }
+    .form-input::placeholder { color: var(--text-muted); }
+
+    /* Password show/hide */
+    .pw-toggle {
+      position: absolute; right: 14px; top: 36px;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-muted); font-family: var(--font-mono); font-size: 0.58rem;
+      transition: color var(--dur) var(--ease);
+    }
+    .pw-toggle:hover { color: var(--text); }
+
+    /* Divider */
+    .auth-divider {
+      display: flex; align-items: center; gap: 12px; margin: 20px 0;
+      font-family: var(--font-mono); font-size: 0.58rem; color: var(--text-muted);
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border-hi);
+    }
+
+    /* Google button */
+    .btn-google {
+      width: 100%; height: 50px; border-radius: var(--r-pill);
+      background: var(--glass-bg); border: 1px solid var(--border-hi);
+      color: var(--text); font-family: var(--font-body); font-size: 0.85rem; font-weight: 500;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      cursor: pointer; transition: all var(--dur) var(--ease);
+    }
+    .btn-google:hover { border-color: var(--border-hi); background: var(--glass-bg-hover); }
+    .btn-google img { width: 18px; height: 18px; }
+
+    /* Primary auth button */
+    .btn-auth {
+      width: 100%; height: 52px; border-radius: var(--r-pill);
+      background: var(--primary); border: none; color: #fff;
+      font-family: var(--font-display); font-size: 0.82rem; font-weight: 700;
+      letter-spacing: 0.04em; cursor: pointer;
+      box-shadow: 0 0 20px var(--primary-glow);
+      transition: all var(--dur) var(--ease); margin-top: 8px;
+    }
+    .btn-auth:hover { box-shadow: 0 0 32px var(--primary-glow); }
+    .btn-auth:active { transform: scale(0.98); }
+    .btn-auth:disabled {
+      background: rgba(99,102,241,0.25); box-shadow: none; cursor: not-allowed;
+    }
+
+    /* Error message */
+    .auth-error {
+      display: none; margin-top: 10px; padding: 10px 14px;
+      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
+      border-radius: var(--r-md); color: var(--danger);
+      font-size: 0.78rem; text-align: center; line-height: 1.5;
+    }
+
+    /* Footer link */
+    .auth-footer-link {
+      margin-top: 16px; text-align: center;
+      font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted);
+    }
+    .auth-footer-link span {
+      color: var(--primary); cursor: pointer; text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    /* Consent checkbox row */
+    .consent-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 12px; border-radius: var(--r-md);
+      background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.18);
+      margin-bottom: 16px;
+    }
+    .consent-row input[type="checkbox"] { margin-top: 2px; accent-color: var(--primary); flex-shrink: 0; }
+    .consent-row label { font-size: 0.75rem; color: var(--text-sub); line-height: 1.5; }
+
+    /* Verify code input */
+    .code-input {
+      text-align: center; letter-spacing: 0.5em;
+      font-size: 1.6rem; font-family: var(--font-display); font-weight: 700;
+    }
+
+    /* Recaptcha */
+    #recaptcha-container { display: flex; justify-content: center; margin-bottom: 16px; }
+
+    /* intl-tel overrides */
+    .iti { width: 100%; }
+    .iti__country-list {
+      background: var(--surface-raised); border: 1px solid var(--border-hi);
+      color: var(--text); font-size: 0.82rem; z-index: 200;
+    }
+    .iti__country.iti__highlight { background: var(--glass-bg); }
+    .iti__divider { border-bottom: 1px solid var(--border); }
+    .iti__selected-dial-code { color: var(--text-sub); }
+    .iti input { padding-left: 90px !important; }
+
+    /* Section label */
+    .view-title {
+      font-family: var(--font-display); font-size: 0.95rem; font-weight: 700;
+      color: var(--text); margin-bottom: 18px; letter-spacing: -0.02em;
+    }
+    .view-sub {
+      font-size: 0.72rem; color: var(--text-muted); margin-top: -12px;
+      margin-bottom: 18px; line-height: 1.5;
+    }
+
+    @media (max-width: 420px) {
+      .auth-card { padding: 20px 16px; }
+      .auth-brand-name { font-size: 1.15rem; }
+    }
+  </style>
+</head>
+<body>
+
+<body class="auth-ready-wait">
+  <div id="splash-overlay">
+    <div class="splash-logo-box">
+      <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 5v-2M12 21v-2" stroke-dasharray="2 2" opacity="0.4"/>
+      </svg>
+    </div>
+    <div style="margin-top:24px; font-family:var(--font-display); font-size:1.1rem; font-weight:800; letter-spacing:0.1em; color:var(--text);">DRIVERWATCH</div>
+    <div style="margin-top:8px; font-family:var(--font-mono); font-size:0.55rem; letter-spacing:0.2em; color:var(--text-muted);">MONITORING THE FUTURE</div>
+  </div>
+
+  <div class="auth-page">
+
+    <!-- Branding -->
+    <!-- Animated road lines background -->
+    <div class="road-lines">
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+      <div class="road-line"></div>
+    </div>
+
+    <div class="auth-brand">
+      <div class="auth-brand-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 5v-2M12 21v-2" stroke-dasharray="2 2" opacity="0.4"/>
+        </svg>
+      </div>
+      <div class="auth-brand-name">DRIVER<span>WATCH</span></div>
+      <div class="auth-brand-sub">ENTERPRISE SAFETY PLATFORM</div>
+      <div class="auth-brand-tagline">Protecting Drivers. Saving Lives.</div>
+    </div>
+
+    <!-- Auth Card -->
+    <div class="auth-card">
+
+      <!-- Toggle: Login / Register -->
+      <div class="auth-toggle" id="auth-toggle-bar">
+        <button class="toggle-btn active" id="btn-login"    onclick="toggleView('login')">EMAIL / GOOGLE</button>
+        <button class="toggle-btn"        id="btn-register" onclick="toggleView('register')">PHONE / REGISTER</button>
+      </div>
+
+      <!-- ── LOGIN VIEW ─────────────────────── -->
+      <div id="login-view">
+        <div id="google-signin-section">
+          <button type="button" id="google-signin-btn" class="btn-google">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google">
+            SIGN IN WITH GOOGLE
+          </button>
+          <div class="auth-divider">OR EMAIL</div>
+        </div>
+
+        <form id="email-signin-form">
+          <div class="form-group">
+            <label class="form-label" for="loginEmail">EMAIL ADDRESS</label>
+            <input class="form-input" type="email" id="loginEmail" placeholder="operator@company.com" required autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="loginPassword">PASSWORD</label>
+            <input class="form-input" type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
+            <button type="button" class="pw-toggle" onclick="togglePasswordVisibility('loginPassword')">SHOW</button>
+          </div>
+          <div id="login-error" class="auth-error"></div>
+          <button type="submit" id="login-submit" class="btn-auth">AUTHENTICATE</button>
+        </form>
+
+        <div class="auth-footer-link">
+          No account? <span onclick="toggleView('register')">Register here</span>
+        </div>
+      </div>
+
+      <!-- ── REGISTER / PHONE VIEW ──────────── -->
+      <div id="register-view">
+        <div class="view-title">REGISTER ACCOUNT</div>
+
+        <div class="form-group" id="reg-email-group" style="display:none;">
+          <label class="form-label" for="regEmail">EMAIL ADDRESS</label>
+          <input class="form-input" type="email" id="regEmail" placeholder="driver@company.com">
+        </div>
+        <div class="form-group" id="reg-pass-group" style="display:none;">
+          <label class="form-label" for="regPassword">PASSWORD (min 6 chars)</label>
+          <input class="form-input" type="password" id="regPassword" minlength="6" placeholder="••••••••" autocomplete="new-password">
+          <button type="button" class="pw-toggle" onclick="togglePasswordVisibility('regPassword')">SHOW</button>
+        </div>
+
+        <form id="phone-auth-form">
+          <div class="form-group">
+            <label class="form-label" for="regContactPhone">PHONE VERIFICATION</label>
+            <input class="form-input" type="tel" id="regContactPhone" required>
+            <div style="margin-top:6px;font-family:var(--font-mono);font-size:0.58rem;color:var(--text-muted);">An SMS code will be sent to verify this device.</div>
+          </div>
+          <div id="recaptcha-container"></div>
+          <div id="phone-error" class="auth-error"></div>
+          <button type="submit" id="phone-submit" class="btn-auth">SEND SMS CODE</button>
+        </form>
+
+        <div class="auth-footer-link" style="margin-top:12px;">
+          <span onclick="toggleEmailReg()">Toggle Email Registration</span>
+        </div>
+      </div>
+
+      <!-- ── VERIFY SMS ──────────────────────── -->
+      <form id="verify-code-view">
+        <div class="view-title">VERIFY DEVICE</div>
+        <div class="view-sub">Enter the 6-digit code sent to your phone.</div>
+        <div class="form-group">
+          <label class="form-label" for="verificationCode">SMS CODE</label>
+          <input class="form-input code-input" type="text" id="verificationCode"
+            placeholder="123456" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" inputmode="numeric">
+        </div>
+        <div id="verify-error" class="auth-error"></div>
+        <button type="submit" id="verify-submit" class="btn-auth">VERIFY DEVICE</button>
+        <div class="auth-footer-link">
+          <span onclick="toggleView('register'); resetRecaptcha();">← Go back</span>
+        </div>
+      </form>
+
+      <!-- ── ONBOARDING (new user profile) ─── -->
+      <form id="onboarding-view">
+        <div class="view-title">COMPLETE PROFILE</div>
+        <div class="view-sub">Your account is linked. We need your emergency contact to activate monitoring.</div>
+
+        <div class="form-group">
+          <label class="form-label" for="onbDriverName">DRIVER FULL NAME</label>
+          <input class="form-input" type="text" id="onbDriverName" placeholder="e.g. Jane Doe" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="onbContactName">EMERGENCY CONTACT NAME</label>
+          <input class="form-input" type="text" id="onbContactName" placeholder="e.g. John Manager" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="onbSex">OPERATOR SEX / DEMOGRAPHIC</label>
+          <select class="form-input" id="onbSex" required>
+            <option value="" disabled selected>Select option...</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Non-Binary">Non-Binary</option>
+            <option value="Other">Other</option>
+            <option value="Private">Prefer not to say</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="onbContactPhone">EMERGENCY CONTACT PHONE</label>
+          <input class="form-input" type="tel" id="onbContactPhone" required>
+        </div>
+        <div class="consent-row">
+          <input type="checkbox" id="onbLocationConsent" required>
+          <label for="onbLocationConsent">I authorize DriverWatch to access my device's live location for emergency dispatch. Required for account provisioning.</label>
+        </div>
+
+        <div id="onb-error" class="auth-error"></div>
+        <button type="submit" id="onb-submit" class="btn-auth">FINALIZE PROVISIONING</button>
+      </form>
+
+    </div><!-- /auth-card -->
+  </div><!-- /auth-page -->
+
+  <script src="login.js"></script>
+  <script>
+    // Splash logic
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        const splash = document.getElementById('splash-overlay');
+        if (splash) splash.classList.add('fade-out');
+        document.body.classList.add('auth-ready');
+      }, 3000); // 3 seconds splash
+    });
+  </script>
+</body>
+</html>
