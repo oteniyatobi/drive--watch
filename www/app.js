@@ -1244,25 +1244,35 @@ async function startRealDispatch(isImpact = false) {
 
 async function scanNearbyEmergencyServices(lat, lng) {
     const radius = 5000; // 5km radius
+    // Query node/way/relation so amenities mapped as areas (ways) are included.
+    // "out center" returns a .center.lat/.center.lon for ways/relations.
     const query = `
         [out:json][timeout:25];
         (
           node["amenity"="hospital"](around:${radius},${lat},${lng});
+          way["amenity"="hospital"](around:${radius},${lat},${lng});
           node["amenity"="police"](around:${radius},${lat},${lng});
+          way["amenity"="police"](around:${radius},${lat},${lng});
           node["amenity"="fire_station"](around:${radius},${lat},${lng});
+          way["amenity"="fire_station"](around:${radius},${lat},${lng});
           node["emergency"="ambulance_station"](around:${radius},${lat},${lng});
+          way["emergency"="ambulance_station"](around:${radius},${lat},${lng});
         );
-        out body 5;
+        out center 10;
     `.trim();
 
     const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        body: query
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query)
     });
     const data = await response.json();
     const elements = data.elements || [];
 
-    const withCoords = elements.filter((el) => el.lat != null && el.lon != null);
+    // nodes have el.lat/el.lon; ways/relations have el.center.lat/el.center.lon
+    const withCoords = elements.filter((el) =>
+        (el.lat != null && el.lon != null) || (el.center && el.center.lat != null)
+    );
     if (withCoords.length === 0) {
         return '<div style="color:var(--acc-muted)">No services found within 5km.</div>';
     }
@@ -1270,13 +1280,13 @@ async function scanNearbyEmergencyServices(lat, lng) {
     return withCoords.slice(0, 5).map((el) => {
         const tags = el.tags || {};
         const rawName = tags.name || tags.amenity || 'Unknown Service';
-        const rawType = (tags.amenity || tags.emergency || '').toUpperCase().replace('_', ' ');
+        const rawType = (tags.amenity || tags.emergency || '').toUpperCase().replace(/_/g, ' ');
         const rawPhone = tags.phone || tags['contact:phone'] || '';
         const name = escapeHtml(rawName);
         const type = escapeHtml(rawType);
         const phone = escapeHtml(rawPhone);
-        const elLat = el.lat.toFixed(5);
-        const elLng = el.lon.toFixed(5);
+        const elLat = (el.lat ?? el.center.lat).toFixed(5);
+        const elLng = (el.lon ?? el.center.lon).toFixed(5);
         const link = `https://maps.google.com/?q=${elLat},${elLng}`;
         return `<div style="padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
             <span style="color:var(--stat-warn);">[${type}]</span> ${name}
