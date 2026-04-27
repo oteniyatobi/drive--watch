@@ -2280,3 +2280,41 @@ async function signOut() {
     }
 }
 
+// ── PWA Installation Logic ────────────────────────────────
+let deferredPrompt;
+const installBtn = document.getElementById('btn-install-pwa');
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent Chrome 67 and earlier from automatically showing the prompt
+    e.preventDefault();
+    // Stash the event so it can be triggered later.
+    deferredPrompt = e;
+    // Show the install button in the Profile tab
+    if (installBtn) {
+        installBtn.style.display = 'block';
+        logEvent('PWA: App is ready for installation.', 't-info');
+    }
+});
+
+if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        // Show the native install prompt
+        deferredPrompt.prompt();
+        // Wait for the user to respond
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`PWA: Install outcome: ${outcome}`);
+        // Clear the deferred prompt so it can't be used again
+        deferredPrompt = null;
+        // Hide the button
+        installBtn.style.display = 'none';
+    });
+}
+
+window.addEventListener('appinstalled', () => {
+    console.log('PWA: DriverWatch was installed successfully.');
+    if (installBtn) installBtn.style.display = 'none';
+    logEvent('PWA: App installed successfully!', 't-succ');
+});
+
+
