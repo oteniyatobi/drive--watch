@@ -9,16 +9,16 @@ let isModelLoaded = false;
 let modelLoadPromise = null; // Singleton promise to prevent race conditions
 let isRunning = false;
 let lastPredictionTime = 0;
-const PREDICTION_INTERVAL_MS = 100; // 10 checks per second is plenty for safety & fast for CPU
+const PREDICTION_INTERVAL_MS = 150; // Slower default to save CPU
 /** Detect native Capacitor / Android environment for performance tuning */
 const _isMobileApp = typeof window !== 'undefined' && window.Capacitor &&
     typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
 const _isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 const IS_MOBILE = _isMobileApp || _isMobileUA;
-/** On mobile, throttle the canvas mirror to ~15fps (67ms) to cut GPU load in half */
-const MIRROR_THROTTLE_MS = IS_MOBILE ? 67 : 0;
-/** On mobile, predict every 250ms (4/sec) instead of 100ms (10/sec) */
-const MOBILE_PREDICTION_MS = IS_MOBILE ? 250 : PREDICTION_INTERVAL_MS;
+/** On mobile, throttle the canvas mirror to ~10fps (100ms) to significantly cut GPU load */
+const MIRROR_THROTTLE_MS = IS_MOBILE ? 100 : 0;
+/** On mobile, predict every 350ms (3/sec) instead of 150ms (7/sec) */
+const MOBILE_PREDICTION_MS = IS_MOBILE ? 350 : PREDICTION_INTERVAL_MS;
 /** Webcam resolution — use standard ideal for better hardware compatibility, downscale in canvas */
 const CAM_W = 400;
 const CAM_H = 300;
@@ -526,12 +526,17 @@ auth.onAuthStateChanged(async (user) => {
 
                 // Trigger model pre-load for faster startup
                 preWarmModel();
+
+                // ── HIDE SPLASH GUARD ──
+                document.body.classList.add('auth-ready');
             } else {
                 console.warn("User authenticated but profile document missing. Opening setup...");
                 window.location.replace('login.html?setup=1');
             }
         } catch (e) {
             console.error("Error loading user data from Firestore:", e);
+            // Even on error, we should probably allow the user to see the UI or retry
+            document.body.classList.add('auth-ready');
         }
     }
 });
