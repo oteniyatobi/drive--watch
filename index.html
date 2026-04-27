@@ -21,7 +21,29 @@
   <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-storage-compat.js"></script>
   <script src="firebase-config.js"></script>
 </head>
-<body>
+<body class="auth-loading">
+
+  <!-- ── SPLASH GUARD (Prevents UI Flash) ────────────────── -->
+  <div id="splash-guard" style="position:fixed; inset:0; z-index:99999; background:#09090b; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:opacity 0.6s ease, visibility 0.6s ease;">
+    <div class="splash-content" style="display:flex; flex-direction:column; align-items:center; animation: splash-pulse 2s ease-in-out infinite;">
+      <div style="width:100px; height:100px; border-radius:24px; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.3); display:flex; align-items:center; justify-content:center; margin-bottom:20px; box-shadow:0 0 40px rgba(99,102,241,0.2);">
+        <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.5">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <div style="font-family:var(--font-display); font-size:1.2rem; font-weight:800; color:white; letter-spacing:0.1em;">DRIVERWATCH</div>
+      <div style="font-family:var(--font-mono); font-size:0.6rem; color:rgba(255,255,255,0.4); margin-top:8px; letter-spacing:0.2em;">VERIFYING OPERATOR...</div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes splash-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.02); opacity: 0.8; }
+    }
+    body.auth-ready #splash-guard { opacity: 0; visibility: hidden; }
+  </style>
 
   <!-- ── TOP BAR ─────────────────────────────── -->
   <header class="top-bar">
