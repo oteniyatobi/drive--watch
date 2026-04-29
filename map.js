@@ -163,12 +163,21 @@ function initSearchListeners() {
     if (clrBtn) clrBtn.onclick = clearActiveRoute;
 }
 
+function _nominatimBias() {
+    const pos = currentGeoPosition || _lastOrigin;
+    if (!pos) return '';
+    const lat = parseFloat(pos.lat), lng = parseFloat(pos.lng);
+    if (isNaN(lat) || isNaN(lng)) return '';
+    const d = 0.5; // ~55 km radius
+    return `&viewbox=${lng-d},${lat+d},${lng+d},${lat-d}&bounded=0`;
+}
+
 async function fetchSuggestions(query) {
     const dd = document.getElementById('map-search-dropdown');
     if (!query || query.length < 3) { dd.innerHTML = ''; dd.classList.remove('open'); return; }
 
     try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`, {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5${_nominatimBias()}`, {
             headers: { 'User-Agent': 'DriverWatch/1.0' }
         });
         const results = await res.json();
@@ -196,7 +205,7 @@ async function startRouting() {
     
     setMapStatusMsg('Calculating route...');
     try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1${_nominatimBias()}`);
         const data = await res.json();
         if (data.length) {
             routeToCoords(parseFloat(data[0].lat), parseFloat(data[0].lon), data[0].display_name.split(',')[0]);
