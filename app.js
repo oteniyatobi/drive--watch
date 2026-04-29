@@ -822,6 +822,7 @@ async function init() {
         if (startupMessage) startupMessage.style.display = 'none';
 
         const labelContainer = document.getElementById("label-container");
+        if (!labelContainer) return;
         labelContainer.innerHTML = '';
         for (let i = 0; i < maxPredictions; i++) {
             const className = model.getClassLabels()[i].toUpperCase();

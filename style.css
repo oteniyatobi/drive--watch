@@ -488,7 +488,7 @@ a { color: inherit; text-decoration: none; }
 }
 .terminal-line {
   font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted);
-  padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); line-height: 1.5;
+  padding: 3px 0; border-bottom: 1px solid var(--border-lo); line-height: 1.5;
 }
 .terminal-line .time { color: rgba(255,255,255,0.18); margin-right: 6px; }
 .terminal-line.t-succ { color: var(--success); }
@@ -731,7 +731,7 @@ a { color: inherit; text-decoration: none; }
   height: calc(100vh - var(--top-bar-h) - var(--bottom-nav-h));
 }
 #mapbox-map {
-  flex: 1; min-height: 300px; z-index: 1;
+  flex: 1; width: 100%; height: 100%; min-height: 300px; z-index: 1;
 }
 
 .map-popup { font-family: var(--font-mono); font-size: 0.65rem; line-height: 1.6; color: var(--text); }
@@ -791,7 +791,7 @@ a { color: inherit; text-decoration: none; }
    ============================================================ */
 .map-search-container {
   position: absolute; top: 16px; left: 16px; right: 16px; z-index: 1000;
-  display: flex; flex-direction: column; gap: 0; animation: slide-up 0.3s var(--ease-spring);
+  display: flex; flex-direction: column; gap: 0;
 }
 .map-search-row {
   display: flex; gap: 8px;
@@ -903,12 +903,12 @@ a { color: inherit; text-decoration: none; }
 
 .profile-info-stack { display: flex; flex-direction: column; gap: 12px; }
 .profile-row {
-  background: rgba(255,255,255,0.03); border: 1px solid var(--border-lo);
+  background: var(--glass-bg); border: 1px solid var(--border-lo);
   border-radius: var(--r-md); padding: 14px 18px;
   display: flex; justify-content: space-between; align-items: center;
   transition: all 0.3s var(--ease);
 }
-.profile-row:hover { background: rgba(255,255,255,0.06); border-color: var(--border-hi); }
+.profile-row:hover { background: var(--glass-bg-hover); border-color: var(--border-hi); }
 .profile-label { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
 .profile-value { font-family: var(--font-body); font-size: 0.95rem; color: var(--text); font-weight: 500; }
 

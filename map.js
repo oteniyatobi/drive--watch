@@ -189,7 +189,8 @@ async function fetchSuggestions(query) {
             div.innerHTML = `<span class="map-search-result-name">${escapeHtml(r.display_name.split(',')[0])}</span>
                              <span class="map-search-result-sub">${escapeHtml(r.display_name.split(',').slice(1,3).join(','))}</span>`;
             div.onclick = () => {
-                input.value = r.display_name.split(',')[0];
+                const searchInput = document.getElementById('map-search-input');
+                if (searchInput) searchInput.value = r.display_name.split(',')[0];
                 dd.classList.remove('open');
                 routeToCoords(parseFloat(r.lat), parseFloat(r.lon), r.display_name.split(',')[0]);
             };
@@ -209,35 +210,74 @@ async function startRouting() {
         const data = await res.json();
         if (data.length) {
             routeToCoords(parseFloat(data[0].lat), parseFloat(data[0].lon), data[0].display_name.split(',')[0]);
+        } else {
+            setMapStatusMsg('Place not found — try a different name.');
         }
-    } catch (e) { setMapStatusMsg('Search failed.', '#ef4444'); }
+    } catch (e) { setMapStatusMsg('Search failed — check connection.'); }
 }
 
 async function routeToCoords(destLat, destLng, name) {
-    const origin = await getPositionForRouting();
+    if (!dwMap || !mapInitialized) {
+        setMapStatusMsg('Map not ready — try again.');
+        return;
+    }
+
+    setMapStatusMsg(`Finding route to ${name}...`);
+
+    let origin;
     try {
-        // Request steps=true for turn-by-turn
-        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true`);
+        origin = await getPositionForRouting();
+    } catch (e) {
+        setMapStatusMsg('Cannot get your location. Enable GPS and try again.');
+        return;
+    }
+
+    try {
+        const res = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true`
+        );
         const data = await res.json();
 
-        if (data.code !== 'Ok') return;
+        if (data.code !== 'Ok') {
+            setMapStatusMsg('No route found to that destination.');
+            return;
+        }
 
         const route = data.routes[0];
         activeRouteData = { dest: { lat: destLat, lng: destLng } };
 
-        // Draw on map
+        // Ensure source exists (map style may have just loaded)
+        if (!dwMap.getSource(currentRouteSourceId)) {
+            dwMap.addSource(currentRouteSourceId, {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+            dwMap.addLayer({
+                id: currentRouteLayerId,
+                type: 'line',
+                source: currentRouteSourceId,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#6366f1', 'line-width': 8, 'line-opacity': 0.8 }
+            });
+        }
+
         dwMap.getSource(currentRouteSourceId).setData(route.geometry);
-        
-        // Fit bounds
+
         const coordinates = route.geometry.coordinates;
-        const bounds = coordinates.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
-        dwMap.fitBounds(bounds, { padding: 50 });
+        const bounds = coordinates.reduce(
+            (acc, coord) => acc.extend(coord),
+            new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+        );
+        dwMap.fitBounds(bounds, { padding: 60 });
 
         updateRoutePanel(route.distance, route.duration);
         renderInstructions(route.legs[0].steps);
-        
+        setMapStatusMsg(`Routing to ${name}`);
         logEvent(`MAP: Routing to ${name}`, 't-succ');
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        setMapStatusMsg('Routing failed — check connection.');
+    }
 }
 
 function renderInstructions(steps) {
@@ -274,8 +314,10 @@ function updateRoutePanel(distMeters, durSeconds) {
     const panel = document.getElementById('route-info-panel');
     if (!panel) return;
     panel.classList.remove('hidden');
-    document.getElementById('route-eta-val').innerText = `${Math.ceil(durSeconds / 60)} min`;
-    document.getElementById('route-dist-val').innerText = `${(distMeters / 1000).toFixed(1)} km`;
+    const etaEl = document.getElementById('route-eta-val');
+    const distEl = document.getElementById('route-dist-val');
+    if (etaEl) etaEl.innerText = `${Math.ceil(durSeconds / 60)} min`;
+    if (distEl) distEl.innerText = `${(distMeters / 1000).toFixed(1)} km`;
 }
 
 function clearActiveRoute() {
@@ -285,7 +327,8 @@ function clearActiveRoute() {
     activeRouteData = null;
     document.getElementById('route-info-panel')?.classList.add('hidden');
     document.getElementById('directions-panel')?.classList.add('hidden');
-    document.getElementById('map-search-input').value = '';
+    const si = document.getElementById('map-search-input');
+    if (si) si.value = '';
 }
 
 // ── Hazards & Community ───────────────────────────────────
@@ -330,12 +373,13 @@ function checkProximityWarning(lat, lng) {
 function toggleDirectionsPanel() {
     const p = document.getElementById('directions-panel');
     const b = document.getElementById('btn-directions-toggle');
+    if (!p) return;
     if (p.classList.contains('minimized')) {
         p.classList.remove('minimized');
-        b.innerText = 'HIDE';
+        if (b) b.innerText = 'HIDE';
     } else {
         p.classList.add('minimized');
-        b.innerText = 'SHOW';
+        if (b) b.innerText = 'SHOW';
     }
 }
 
