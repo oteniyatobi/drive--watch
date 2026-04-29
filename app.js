@@ -26,6 +26,10 @@ function syncThemeUI() {
     const toggle = document.getElementById('theme-toggle');
     if (toggle) toggle.checked = (theme === 'light');
     document.documentElement.setAttribute('data-theme', theme);
+    const darkOpt  = document.getElementById('theme-opt-dark');
+    const lightOpt = document.getElementById('theme-opt-light');
+    if (darkOpt)  darkOpt.classList.toggle('active',  theme === 'dark');
+    if (lightOpt) lightOpt.classList.toggle('active', theme === 'light');
 }
 
 // Hook into Profile render
