@@ -921,6 +921,24 @@ a { color: inherit; text-decoration: none; }
 .profile-actions { margin-top: 32px; display: flex; flex-direction: column; gap: 12px; }
 
 /* Toggle Switch Styling */
+.theme-toggle-row {
+  display: flex; align-items: center; justify-content: center;
+  gap: 20px; padding: 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.theme-opt {
+  display: flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.1em; color: var(--text-muted);
+  opacity: 0.4;
+  transition: color 0.25s var(--ease), opacity 0.25s var(--ease);
+  user-select: none;
+}
+.theme-opt svg { flex-shrink: 0; }
+.theme-opt.active {
+  color: var(--text);
+  opacity: 1;
+}
 .settings-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px; background: var(--glass-bg); border: 1px solid var(--border);
