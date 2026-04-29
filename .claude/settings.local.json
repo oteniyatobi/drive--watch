@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs -I{} sh -c 'git show --stat {} 2>/dev/null | grep -i map && echo \"commit: {}\"')"
+      "Bash(xargs -I{} sh -c 'git show --stat {} 2>/dev/null | grep -i map && echo \"commit: {}\"')",
+      "Bash(git -C \"C:/Users/oluwa/OneDrive/Desktop/drive watch\" status)",
+      "Bash(git -C \"C:/Users/oluwa/OneDrive/Desktop/drive watch\" diff --stat)",
+      "Bash(git *)"
     ]
   }
 }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes, minimum-scale=1, maximum-scale=5">
   <title>DriverWatch Enterprise</title>
   <meta name="description" content="AI-powered fleet safety — real-time fatigue detection, dashcam, and emergency dispatch.">
   <link rel="icon" type="image/png" href="favicon.png">
@@ -12,14 +12,19 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="style.css">
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <!-- MapLibre GL JS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="">
   <!-- Firebase SDK Compat -->
   <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-storage-compat.js"></script>
   <script src="firebase-config.js"></script>
+  <script>
+    /* ── Immediate Theme Initialization (Prevents Flash) ── */
+    const savedTheme = localStorage.getItem('dw-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
 </head>
 <body class="auth-loading">
 
@@ -224,16 +229,41 @@
           </div>
         </div>
 
+        </div>
+
+        <!-- App Settings -->
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-label-title">LIGHT MODE</span>
+            <span class="settings-label-sub">High-contrast day theme</span>
+          </div>
+          <label class="switch-container">
+            <input type="checkbox" id="theme-toggle" class="switch-input" onchange="toggleTheme()">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
         <div class="profile-actions">
            <button class="btn-sm" id="btn-install-pwa" style="height:48px; display:none; border-color:var(--primary); color:var(--primary); margin-bottom:12px;">INSTALL DRIVERWATCH APP</button>
-           <button class="btn-sm" style="height:48px; border-color:var(--danger); color:var(--danger);" onclick="signOut()">SECURE LOG OUT</button>
+           <button class="btn-sm" style="height:48px; border-color:var(--danger); color:var(--danger);" onclick="logout()">SECURE LOG OUT</button>
+        </div>
+
+        <!-- System Log (Activity Feed) -->
+        <div class="log-panel" style="margin-top: 32px; padding: 0;">
+          <div class="panel-header-row" style="margin-bottom: 12px;">
+            <span class="panel-title" style="font-size: 0.75rem; color: var(--text-muted);">SYSTEM LOG</span>
+            <button id="clear-log-btn" class="btn-sm">CLEAR</button>
+          </div>
+          <div id="activity-log" class="terminal-container" style="height: 180px;">
+            <div class="terminal-line">[SYS] Kernel initialized. Awaiting hardware...</div>
+          </div>
         </div>
       </div>
     </section><!-- /tab-profile -->
     <!-- ══ MAP TAB ════════════════════════════════ -->
     <section id="tab-map" class="tab-panel">
       <div class="map-wrapper">
-        <div id="leaflet-map"></div>
+        <div id="mapbox-map"></div>
 
         <!-- Search + routing bar -->
         <div class="map-search-container">
@@ -258,6 +288,15 @@
             </div>
           </div>
           <button onclick="clearActiveRoute()" class="btn-pill" style="height:36px;padding:0 14px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;font-size:0.75rem;">END</button>
+        </div>
+
+        <!-- Turn-by-turn directions panel -->
+        <div id="directions-panel" class="directions-panel hidden">
+          <div class="directions-header">
+            <span class="directions-title">TURN-BY-TURN</span>
+            <button id="btn-directions-toggle" onclick="toggleDirectionsPanel()" class="btn-sm">HIDE</button>
+          </div>
+          <div id="directions-steps" class="directions-steps"></div>
         </div>
 
         <!-- Danger advisory toast (shown on proximity) -->
@@ -398,17 +437,31 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
   <script src="app.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
   <script src="map.js"></script>
   <script>
+    /* ── Splash guard timeout — max 6s then force show UI ── */
+    (function() {
+      const _splashTimer = setTimeout(() => {
+        document.body.classList.add('auth-ready');
+      }, 6000);
+      window.__clearSplashTimer = () => clearTimeout(_splashTimer);
+    })();
+
     /* ── Tab switcher ─────────────────────────── */
     function switchTab(name) {
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => {
+        p.classList.remove('active');
+        p.style.pointerEvents = 'none';
+      });
       document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
       const panel = document.getElementById('tab-' + name);
       const btn   = document.getElementById('nav-tab-' + name);
-      if (panel) panel.classList.add('active');
-      if (btn)   btn.classList.add('active');
+      if (panel) {
+        panel.classList.add('active');
+        panel.style.pointerEvents = '';
+      }
+      if (btn) btn.classList.add('active');
       if (name === 'map' && typeof onMapTabOpened === 'function') {
         setTimeout(onMapTabOpened, 120);
       }
