@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes, minimum-scale=1, maximum-scale=5">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>DriverWatch Enterprise</title>
   <meta name="description" content="AI-powered fleet safety — real-time fatigue detection, dashcam, and emergency dispatch.">
   <link rel="icon" type="image/png" href="favicon.png">
@@ -452,14 +452,20 @@
     function switchTab(name) {
       document.querySelectorAll('.tab-panel').forEach(p => {
         p.classList.remove('active');
-        p.style.pointerEvents = 'none';
+        p.style.cssText = '';
       });
       document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
       const panel = document.getElementById('tab-' + name);
       const btn   = document.getElementById('nav-tab-' + name);
       if (panel) {
+        // Render at start state so CSS transition has a from-value to animate
+        panel.style.display = 'flex';
+        panel.style.opacity = '0';
+        panel.style.transform = 'translateY(10px) scale(0.99)';
+        panel.style.visibility = 'visible';
+        void panel.offsetHeight; // force reflow — registers start state
+        panel.style.cssText = '';
         panel.classList.add('active');
-        panel.style.pointerEvents = '';
       }
       if (btn) btn.classList.add('active');
       if (name === 'map' && typeof onMapTabOpened === 'function') {

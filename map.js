@@ -237,13 +237,17 @@ function renderInstructions(steps) {
     if (!panel || !list) return;
 
     list.innerHTML = '';
-    steps.forEach((s, i) => {
+    steps.forEach((s) => {
         const item = document.createElement('div');
         item.className = 'direction-step';
-        item.innerHTML = `<span class="step-icon">${getStepIcon(s.maneuver.type)}</span>
+        const type = s.maneuver.type || '';
+        const modifier = s.maneuver.modifier || '';
+        const road = s.name ? ` on ${s.name}` : '';
+        const instr = modifier ? `${type} ${modifier}${road}` : `${type}${road}`;
+        item.innerHTML = `<span class="step-icon">${getStepIcon(type)}</span>
                           <div class="step-text">
-                             <div class="step-instr">${s.maneuver.instruction}</div>
-                             <div class="step-dist">${(s.distance).toFixed(0)}m</div>
+                             <div class="step-instr">${escapeHtml(instr)}</div>
+                             <div class="step-dist">${Math.round(s.distance)}m</div>
                           </div>`;
         list.appendChild(item);
     });
@@ -334,9 +338,8 @@ function setMapStatusMsg(msg) {
 function updateMapTheme(theme) {
     if (!dwMap) return;
     const style = theme === 'light' ? 'https://tiles.openfreemap.org/styles/bright' : 'https://tiles.openfreemap.org/styles/dark';
-    
-    // Listen for the new style to load before re-adding layers
-    dwMap.once('styledata', () => {
+
+    dwMap.once('style.load', () => {
         if (!dwMap.getSource(currentRouteSourceId)) {
             dwMap.addSource(currentRouteSourceId, {
                 type: 'geojson',
@@ -350,8 +353,8 @@ function updateMapTheme(theme) {
                 paint: { 'line-color': '#6366f1', 'line-width': 8, 'line-opacity': 0.8 }
             });
         }
-        // Refresh markers
-        refreshAllMapData(dwMap.getCenter().lat, dwMap.getCenter().lng);
+        const c = dwMap.getCenter();
+        refreshAllMapData(c.lat, c.lng);
     });
 
     dwMap.setStyle(style);
