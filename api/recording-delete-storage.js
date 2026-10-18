@@ -1,9 +1,9 @@
 // POST /api/recording-delete-storage
 // Body: { publicId } — destroys a Cloudinary video for the authenticated user.
 // Security: publicId must be under the user's own folder in Cloudinary.
-// Env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON
+// Env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
-const { getFirebaseAdmin }  = require('./_lib/firebaseAdmin');
+const { getUserIdFromRequest, AuthError } = require('./_lib/supabaseAdmin');
 const { getCloudinaryConfig, generateSignature } = require('./_lib/cloudinaryAdmin');
 
 module.exports = async (req, res) => {
@@ -12,14 +12,7 @@ module.exports = async (req, res) => {
     }
 
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Missing Authorization Bearer token' });
-        }
-
-        const admin   = getFirebaseAdmin();
-        const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
-        const uid     = decoded.uid;
+        const uid = await getUserIdFromRequest(req);
 
         const body     = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
         const publicId = body.publicId;
@@ -65,6 +58,9 @@ module.exports = async (req, res) => {
 
     } catch (e) {
         console.error('recording-delete-storage:', e);
+        if (e instanceof AuthError) {
+            return res.status(401).json({ error: e.message });
+        }
         return res.status(500).json({ error: e?.message || 'Delete failed' });
     }
 };

@@ -1,12 +1,12 @@
 {
-    "name": "Driver Watch Enterprise",
-    "short_name": "DriverWatch",
-    "description": "AI-Powered Dashcam & Fleet Monitoring System",
+    "name": "driverwatch",
+    "short_name": "driverwatch",
+    "description": "Driver Safety. Always Watching. Real-time fatigue detection, dashcam and emergency alerts.",
     "id": "com.driverwatch.enterprise",
     "start_url": "/index.html",
     "display": "standalone",
-    "background_color": "#09090b",
-    "theme_color": "#09090b",
+    "background_color": "#0A2540",
+    "theme_color": "#0A2540",
     "orientation": "any",
     "icons": [
         {
