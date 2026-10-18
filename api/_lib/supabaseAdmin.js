@@ -16,4 +16,19 @@ function getSupabaseAdmin() {
     return client;
 }
 
-module.exports = { getSupabaseAdmin };
+class AuthError extends Error {}
+
+/** Verifies the Supabase access token in "Authorization: Bearer <token>" and returns the user id. */
+async function getUserIdFromRequest(req) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        throw new AuthError('Missing Authorization Bearer token');
+    }
+    const { data, error } = await getSupabaseAdmin().auth.getUser(authHeader.slice(7));
+    if (error || !data || !data.user) {
+        throw new AuthError('Invalid or expired auth token.');
+    }
+    return data.user.id;
+}
+
+module.exports = { getSupabaseAdmin, getUserIdFromRequest, AuthError };

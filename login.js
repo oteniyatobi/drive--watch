@@ -4,324 +4,273 @@ const isNativeApp = typeof window !== 'undefined' &&
     typeof window.Capacitor.isNativePlatform === 'function' &&
     window.Capacitor.isNativePlatform();
 
+const VIEWS = ['signin-view', 'signup-view', 'phone-view', 'verify-view', 'onboarding-view'];
+
 // UI Utilities
-function toggleView(view) {
-    document.getElementById('login-view').style.display = 'none';
-    document.getElementById('register-view').style.display = 'none';
-    document.getElementById('verify-code-view').style.display = 'none';
-    document.getElementById('onboarding-view').style.display = 'none';
-
-    if (view === 'login') {
-        document.getElementById('login-view').style.display = 'block';
-        document.getElementById('btn-login').classList.add('active');
-        document.getElementById('btn-register').classList.remove('active');
-    } else if (view === 'register') {
-        document.getElementById('register-view').style.display = 'block';
-        document.getElementById('btn-login').classList.remove('active');
-        document.getElementById('btn-register').classList.add('active');
-        initRecaptcha();
-    }
+function showView(view) {
+    VIEWS.forEach((id) => {
+        document.getElementById(id).hidden = id !== view;
+    });
+    const tabs = document.getElementById('auth-tabs');
+    tabs.hidden = view === 'verify-view' || view === 'onboarding-view';
+    document.getElementById('tab-signin').classList.toggle('active', view === 'signin-view' || view === 'phone-view');
+    document.getElementById('tab-signup').classList.toggle('active', view === 'signup-view');
+    clearMessages();
 }
 
-function toggleEmailReg() {
-    const e = document.getElementById('reg-email-group');
-    const p = document.getElementById('reg-pass-group');
-    if (e.style.display === 'none') {
-        e.style.display = 'block';
-        p.style.display = 'block';
-        document.getElementById('regEmail').setAttribute('required', 'true');
-        document.getElementById('regPassword').setAttribute('required', 'true');
-        document.getElementById('phone-submit').textContent = 'REGISTER EMAIL & SECURE PHONE';
-    } else {
-        e.style.display = 'none';
-        p.style.display = 'none';
-        document.getElementById('regEmail').removeAttribute('required');
-        document.getElementById('regPassword').removeAttribute('required');
-        document.getElementById('phone-submit').textContent = 'SEND SMS CODE';
-    }
+function clearMessages() {
+    document.querySelectorAll('.auth-msg').forEach((el) => {
+        el.hidden = true;
+        el.textContent = '';
+    });
 }
 
-function togglePasswordVisibility(inputId) {
+function showMessage(id, text, kind = 'error') {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = `auth-msg ${kind}`;
+    el.hidden = false;
+}
+
+function setBusy(btn, busy, label) {
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+    btn.disabled = busy;
+    btn.textContent = busy ? label : btn.dataset.label;
+}
+
+function togglePasswordVisibility(inputId, btn) {
     const el = document.getElementById(inputId);
-    const btn = el.nextElementSibling;
-    if (el.type === "password") {
-        el.type = "text";
-        btn.textContent = "HIDE";
-    } else {
-        el.type = "password";
-        btn.textContent = "SHOW";
-    }
+    const show = el.type === 'password';
+    el.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'Hide' : 'Show';
 }
 
 // Intl-Tel-Input Setups
-const phoneInputReg = window.intlTelInput(document.querySelector("#regContactPhone"), {
+const telOptions = {
     utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js",
-    preferredCountries: ["us", "gb", "ca", "ng"], separateDialCode: true,
-});
-const phoneInputOnb = window.intlTelInput(document.querySelector("#onbContactPhone"), {
-    utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js",
-    preferredCountries: ["us", "gb", "ca", "ng"], separateDialCode: true,
-});
-
+    preferredCountries: ["rw", "ke", "ug", "tz", "ng", "gb", "us"],
+    separateDialCode: true,
+};
+const phoneInputAuth = window.intlTelInput(document.querySelector("#authPhone"), telOptions);
+const phoneInputOnb = window.intlTelInput(document.querySelector("#onbContactPhone"), telOptions);
 
 // State
-let confirmationResult = null;
+let pendingPhone = null;
 let currentAuthenticatedUser = null;
 
 function showOnboardingUI(user) {
     currentAuthenticatedUser = user;
-    const toggle = document.querySelector('.auth-toggle');
-    if (toggle) toggle.style.display = 'none';
-    document.getElementById('login-view').style.display = 'none';
-    document.getElementById('register-view').style.display = 'none';
-    document.getElementById('verify-code-view').style.display = 'none';
-    if (user.displayName) document.getElementById('onbDriverName').value = user.displayName;
-    if (user.phoneNumber) phoneInputOnb.setNumber(user.phoneNumber);
-    document.getElementById('onboarding-view').style.display = 'block';
+    const meta = user.user_metadata || {};
+    const name = meta.full_name || meta.name;
+    if (name) document.getElementById('onbDriverName').value = name;
+    showView('onboarding-view');
 }
 
-/* On login.html only: send people with a profile straight to the app (no multi-second wait on this page). */
-auth.onAuthStateChanged(async (user) => {
-    if (!user) {
-        currentAuthenticatedUser = null;
-        return;
-    }
+/** Signed-in users with a profile go straight to the app; new users finish onboarding. */
+async function routeSignedInUser(user) {
     currentAuthenticatedUser = user;
-    const onLogin = /login\.html/i.test(window.location.pathname || '');
-    if (!onLogin) return;
-
     try {
-        const doc = await db.collection('users').doc(user.uid).get();
-        if (doc.exists) {
-            window.location.replace('/');
-            return;
-        }
-        showOnboardingUI(user);
-    } catch (e) {
-        console.error('Error fetching user data', e);
-    }
-});
-
-// Google Sign-In
-// - Native app (Android/iOS): uses the Capacitor GoogleAuth plugin — opens the native
-//   Google account picker already on the device, no WebView redirect needed.
-// - Web browser: uses Firebase signInWithPopup as normal.
-document.getElementById('google-signin-btn').addEventListener('click', async () => {
-    const errorDiv = document.getElementById('login-error');
-    errorDiv.style.display = 'none';
-
-    try {
-        let firebaseUser;
-
-        if (isNativeApp) {
-            // Native path — uses the Google account picker built into Android
-            const GoogleAuth = window.Capacitor.Plugins.GoogleAuth;
-            await GoogleAuth.initialize();
-            const googleUser = await GoogleAuth.signIn();
-            const idToken = googleUser.authentication.idToken;
-            const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
-            const result = await auth.signInWithCredential(credential);
-            firebaseUser = result.user;
-        } else {
-            // Web path — standard popup flow
-            const provider = new firebase.auth.GoogleAuthProvider();
-            const result = await auth.signInWithPopup(provider);
-            firebaseUser = result.user;
-        }
-
-        const doc = await db.collection('users').doc(firebaseUser.uid).get();
-        if (doc.exists) {
-            window.location.replace('/');
-        } else {
-            showOnboardingUI(firebaseUser);
-        }
-    } catch (err) {
-        const errorDiv = document.getElementById('login-error');
-        errorDiv.textContent = err.message || 'Google Sign-In failed. Try email instead.';
-        errorDiv.style.display = 'block';
-    }
-});
-
-// Email/Pass Sign-In
-document.getElementById('email-signin-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('loginEmail').value;
-    const pass = document.getElementById('loginPassword').value;
-    const errorDiv = document.getElementById('login-error');
-    const btn = document.getElementById('login-submit');
-
-    errorDiv.style.display = 'none';
-    btn.disabled = true; btn.textContent = 'AUTHENTICATING...';
-
-    try {
-        await auth.signInWithEmailAndPassword(email, pass);
-    } catch (err) {
-        errorDiv.textContent = err.message;
-        errorDiv.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'AUTHENTICATE EMAIL';
-    }
-});
-
-// Phone Auth & Recaptcha
-function initRecaptcha() {
-    if (!window.recaptchaVerifier) {
-        window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
-            'size': 'normal',
-            'callback': (response) => {
-                // reCAPTCHA solved
-                document.getElementById('phone-submit').disabled = false;
-            },
-            'expired-callback': () => {
-                document.getElementById('phone-submit').disabled = true;
-            }
-        });
-        window.recaptchaVerifier.render();
-    }
-}
-
-function resetRecaptcha() {
-    if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-        initRecaptcha();
-    }
-}
-
-document.getElementById('phone-auth-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    if (!phoneInputReg.isValidNumber()) {
-        const errorDiv = document.getElementById('phone-error');
-        errorDiv.textContent = 'Please enter a valid Professional Phone Number.';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    const phoneNumber = phoneInputReg.getNumber();
-    const errorDiv = document.getElementById('phone-error');
-    const btn = document.getElementById('phone-submit');
-
-    // Email registration combo logic
-    const isEmailReg = document.getElementById('reg-email-group').style.display === 'block';
-
-    errorDiv.style.display = 'none';
-    btn.disabled = true; btn.textContent = 'SECURING DEVICE...';
-
-    try {
-        if (isEmailReg) {
-            const email = document.getElementById('regEmail').value;
-            const pass = document.getElementById('regPassword').value;
-            // Create user first, then let auth state listener catch it and push to onboarding
-            await auth.createUserWithEmailAndPassword(email, pass);
-        } else {
-            // Standard Phone Auth
-            const appVerifier = window.recaptchaVerifier;
-            confirmationResult = await auth.signInWithPhoneNumber(phoneNumber, appVerifier);
-
-            // Show Verify View
-            document.getElementById('register-view').style.display = 'none';
-            document.getElementById('verify-code-view').style.display = 'block';
-        }
-    } catch (err) {
-        errorDiv.textContent = err.message;
-        errorDiv.style.display = 'block';
-        btn.disabled = false; btn.textContent = isEmailReg ? 'REGISTER EMAIL & SECURE PHONE' : 'SEND SMS CODE';
-        if (!isEmailReg) resetRecaptcha();
-    }
-});
-
-// Verify SMS Code
-document.getElementById('verify-code-view').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const code = document.getElementById('verificationCode').value;
-    const errorDiv = document.getElementById('verify-error');
-    const btn = document.getElementById('verify-submit');
-
-    errorDiv.style.display = 'none';
-    btn.disabled = true; btn.textContent = 'VERIFYING...';
-
-    try {
-        const result = await confirmationResult.confirm(code);
-        const user = result.user;
-        // Check if they already have a profile; if not, show onboarding
-        const doc = await db.collection('users').doc(user.uid).get();
-        if (doc.exists) {
+        const profile = await fetchProfile(user.id);
+        if (profile) {
             window.location.replace('/');
         } else {
             showOnboardingUI(user);
         }
-    } catch (err) {
-        errorDiv.textContent = 'Invalid verification code. Please try again.';
-        errorDiv.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'VERIFY DEVICE';
+    } catch (e) {
+        console.error('Error fetching user profile', e);
+        showMessage('signin-msg', 'Could not load your profile. Check your connection and try again.');
+    }
+}
+
+// Handles both a returning session and the redirect back from Google OAuth.
+sb.auth.onAuthStateChange((event, session) => {
+    if (!session) {
+        currentAuthenticatedUser = null;
+        return;
+    }
+    if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        // Defer: Supabase recommends not awaiting other calls inside this callback.
+        setTimeout(() => routeSignedInUser(session.user), 0);
     }
 });
 
-// Onboarding Submission (When new Auth user needs to fill out Firestore Profile)
-document.getElementById('onboarding-view').addEventListener('submit', async (e) => {
+// Tabs
+document.getElementById('tab-signin').addEventListener('click', () => showView('signin-view'));
+document.getElementById('tab-signup').addEventListener('click', () => showView('signup-view'));
+document.querySelectorAll('[data-show]').forEach((el) => {
+    el.addEventListener('click', () => showView(el.dataset.show));
+});
+
+// Google Sign-In
+// - Native app (Android/iOS): uses the Capacitor GoogleAuth plugin — opens the native
+//   Google account picker already on the device, then exchanges its ID token with Supabase.
+// - Web browser: Supabase OAuth redirect; we land back on this page signed in.
+document.querySelectorAll('.btn-google').forEach((btn) => btn.addEventListener('click', async () => {
+    clearMessages();
+    try {
+        if (isNativeApp) {
+            const GoogleAuth = window.Capacitor.Plugins.GoogleAuth;
+            await GoogleAuth.initialize();
+            const googleUser = await GoogleAuth.signIn();
+            const { error } = await sb.auth.signInWithIdToken({
+                provider: 'google',
+                token: googleUser.authentication.idToken,
+            });
+            if (error) throw error;
+        } else {
+            const { error } = await sb.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: window.location.origin + window.location.pathname },
+            });
+            if (error) throw error;
+        }
+    } catch (err) {
+        showMessage('signin-msg', err.message || 'Google sign-in failed. Try email instead.');
+    }
+}));
+
+// Email/Pass Sign-In
+document.getElementById('signin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const btn = document.getElementById('signin-submit');
+    clearMessages();
+    setBusy(btn, true, 'Signing in…');
+
+    const { error } = await sb.auth.signInWithPassword({
+        email: document.getElementById('signinEmail').value.trim(),
+        password: document.getElementById('signinPassword').value,
+    });
+    if (error) {
+        showMessage('signin-msg', error.message);
+        setBusy(btn, false);
+    }
+    // Success is handled by onAuthStateChange.
+});
+
+// Email/Pass Registration
+document.getElementById('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('signup-submit');
+    clearMessages();
+    setBusy(btn, true, 'Creating account…');
+
+    const { data, error } = await sb.auth.signUp({
+        email: document.getElementById('signupEmail').value.trim(),
+        password: document.getElementById('signupPassword').value,
+        options: { emailRedirectTo: window.location.origin + window.location.pathname },
+    });
+    setBusy(btn, false);
+    if (error) {
+        showMessage('signup-msg', error.message);
+        return;
+    }
+    if (!data.session) {
+        // "Confirm email" is on in Supabase → user must click the link first.
+        showMessage('signup-msg', 'Check your inbox and click the confirmation link to finish creating your account.', 'success');
+    }
+    // With a session, onAuthStateChange moves the user to onboarding.
+});
+
+// Phone OTP — Supabase sends the SMS via the provider configured in Auth → Providers → Phone.
+document.getElementById('phone-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearMessages();
+
+    if (!phoneInputAuth.isValidNumber()) {
+        showMessage('phone-msg', 'Enter a valid phone number.');
+        return;
+    }
+
+    const btn = document.getElementById('phone-submit');
+    setBusy(btn, true, 'Sending code…');
+    pendingPhone = phoneInputAuth.getNumber();
+
+    const { error } = await sb.auth.signInWithOtp({ phone: pendingPhone });
+    setBusy(btn, false);
+    if (error) {
+        showMessage('phone-msg', error.message);
+        return;
+    }
+    document.getElementById('verify-target').textContent = pendingPhone;
+    showView('verify-view');
+    document.getElementById('verificationCode').focus();
+});
+
+// Verify SMS Code
+document.getElementById('verify-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('verify-submit');
+    clearMessages();
+    setBusy(btn, true, 'Verifying…');
+
+    const { error } = await sb.auth.verifyOtp({
+        phone: pendingPhone,
+        token: document.getElementById('verificationCode').value.trim(),
+        type: 'sms',
+    });
+    if (error) {
+        showMessage('verify-msg', 'That code is invalid or expired. Try again.');
+        setBusy(btn, false);
+    }
+    // Success is handled by onAuthStateChange.
+});
+
+// Onboarding Submission (new auth user needs a profiles row)
+document.getElementById('onboarding-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearMessages();
 
     if (!phoneInputOnb.isValidNumber()) {
-        const errorDiv = document.getElementById('onb-error');
-        errorDiv.textContent = 'Please enter a valid Professional Phone Number.';
-        errorDiv.style.display = 'block';
+        showMessage('onb-msg', 'Enter a valid phone number for your emergency contact.');
         return;
     }
+    if (!currentAuthenticatedUser) return; // Guard
 
-    if (!currentAuthenticatedUser) return; // Guard 
-
-    const driverName = document.getElementById('onbDriverName').value;
-    const contactName = document.getElementById('onbContactName').value;
-    const contactSex = document.getElementById('onbSex').value;
-    const contactPhone = phoneInputOnb.getNumber();
-
-    const errorDiv = document.getElementById('onb-error');
     const btn = document.getElementById('onb-submit');
-    const locationConsent = document.getElementById('onbLocationConsent').checked;
-
-    errorDiv.style.display = 'none';
-    btn.disabled = true; btn.textContent = 'REQUESTING LOCATION...';
+    const user = currentAuthenticatedUser;
+    const profile = {
+        driverName: document.getElementById('onbDriverName').value.trim(),
+        sex: document.getElementById('onbSex').value,
+        email: user.email || '',
+        phone: user.phone ? `+${user.phone.replace(/^\+/, '')}` : '',
+        emergencyContact: {
+            name: document.getElementById('onbContactName').value.trim(),
+            phone: phoneInputOnb.getNumber(),
+        },
+        locationConsentGranted: document.getElementById('onbLocationConsent').checked,
+    };
 
     if (!navigator.geolocation) {
-        errorDiv.textContent = 'Geolocation is not supported by your browser.';
-        errorDiv.style.display = 'block';
-        btn.disabled = false; btn.textContent = 'FINALIZE PROVISIONING';
+        showMessage('onb-msg', 'Location is not supported in this browser.');
         return;
     }
 
+    setBusy(btn, true, 'Requesting location…');
     navigator.geolocation.getCurrentPosition(
-        async (position) => {
-            btn.textContent = 'PROVISIONING ACCOUNT...';
-            try {
-                // Insert to Firestore (includes location consent for compliance record)
-                await db.collection('users').doc(currentAuthenticatedUser.uid).set({
-                    driverName: driverName,
-                    sex: contactSex,
-                    email: currentAuthenticatedUser.email || '',
-                    emergencyContact: {
-                        name: contactName,
-                        phone: contactPhone
-                    },
-                    locationConsentGranted: locationConsent,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-
-                // Success - redirect manually
-                window.location.href = '/';
-
-            } catch (err) {
-                errorDiv.textContent = err.message;
-                errorDiv.style.display = 'block';
-                btn.disabled = false; btn.textContent = 'FINALIZE PROVISIONING';
+        async () => {
+            btn.textContent = 'Saving profile…';
+            const { error } = await sb.from('profiles').upsert({ id: user.id, ...profileToRow(profile) });
+            if (error) {
+                showMessage('onb-msg', error.message);
+                setBusy(btn, false);
+                return;
             }
+            window.location.href = '/';
         },
         (error) => {
-            let errorMessage = 'Error obtaining location. ';
-            if (error.code === error.PERMISSION_DENIED) errorMessage += 'Location access required.';
-            errorDiv.textContent = errorMessage;
-            errorDiv.style.display = 'block';
-            btn.disabled = false; btn.textContent = 'FINALIZE PROVISIONING';
+            showMessage('onb-msg', error.code === error.PERMISSION_DENIED
+                ? 'Location access is required so emergency alerts can include your position.'
+                : 'Could not get your location. Try again.');
+            setBusy(btn, false);
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
 });
+
+// Sign out from onboarding (e.g. wrong account)
+document.getElementById('onb-signout').addEventListener('click', async () => {
+    await sb.auth.signOut();
+    showView('signin-view');
+});
+
+showView('signin-view');

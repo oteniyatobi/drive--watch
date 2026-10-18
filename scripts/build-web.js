@@ -16,7 +16,7 @@ const ASSETS = [
     'login.html',
     'app.js',
     'login.js',
-    'firebase-config.js',
+    'supabase-config.js',
     'map.js',
     'style.css',
     'service-worker.js',
@@ -24,6 +24,8 @@ const ASSETS = [
     'favicon.png',
     'icon-192.png',
     'icon-512.png',
+    'apple-touch-icon.png',
+    'assets',       // brand logos
     'model',        // AI model directory (model.json + weights.bin + metadata.json)
 ];
 

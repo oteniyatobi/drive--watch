@@ -1,0 +1,24 @@
+/* DriverWatch Brand Colors - Ready for website use */
+
+:root {
+  /* Primary */
+  --dw-navy: #0A2540;
+  --dw-navy-rgb: 10, 37, 64;
+
+  /* Accent (steering wheel / highlights) */
+  --dw-teal: #5B8A9A;
+  --dw-teal-rgb: 91, 138, 154;
+
+  /* Neutrals */
+  --dw-white: #FFFFFF;
+  --dw-soft-gray: #F2F4F7;
+  --dw-light-gray: #E8ECF0;
+  --dw-dark: #111111;
+}
+
+/* Utility classes */
+.bg-navy { background-color: var(--dw-navy); }
+.text-navy { color: var(--dw-navy); }
+.bg-teal { background-color: var(--dw-teal); }
+.text-teal { color: var(--dw-teal); }
+.bg-soft-gray { background-color: var(--dw-soft-gray); }

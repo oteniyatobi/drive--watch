@@ -34,7 +34,7 @@ function initMap() {
 
     dwMap = new maplibregl.Map({
         container: 'mapbox-map',
-        style: 'https://tiles.openfreemap.org/styles/dark', // High-performance vector tiles
+        style: document.documentElement.getAttribute('data-theme') === 'dark' ? 'https://tiles.openfreemap.org/styles/dark' : 'https://tiles.openfreemap.org/styles/bright',
         center: [lng, lat],
         zoom: 15,
         pitch: 45, // Dynamic 3D feel
@@ -60,7 +60,7 @@ function initMap() {
             source: currentRouteSourceId,
             layout: { 'line-join': 'round', 'line-cap': 'round' },
             paint: {
-                'line-color': '#6366f1',
+                'line-color': '#5B8A9A',
                 'line-width': 8,
                 'line-opacity': 0.8
             }
@@ -257,7 +257,7 @@ async function routeToCoords(destLat, destLng, name) {
                 type: 'line',
                 source: currentRouteSourceId,
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#6366f1', 'line-width': 8, 'line-opacity': 0.8 }
+                paint: { 'line-color': '#5B8A9A', 'line-width': 8, 'line-opacity': 0.8 }
             });
         }
 
@@ -351,7 +351,7 @@ async function fetchOsmData(lat, lng) {
         hazardMarkers = [];
 
         data.elements.forEach(el => {
-            const color = el.tags.highway === 'speed_camera' ? '#f59e0b' : '#6366f1';
+            const color = el.tags.highway === 'speed_camera' ? '#D97706' : '#0A2540';
             const m = new maplibregl.Marker({ color })
                 .setLngLat([el.lon, el.lat])
                 .setPopup(new maplibregl.Popup().setHTML(`<b>${el.tags.highway.replace('_',' ')}</b>`))
@@ -403,7 +403,7 @@ function updateMapTheme(theme) {
                 type: 'line',
                 source: currentRouteSourceId,
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#6366f1', 'line-width': 8, 'line-opacity': 0.8 }
+                paint: { 'line-color': '#5B8A9A', 'line-width': 8, 'line-opacity': 0.8 }
             });
         }
         const c = dwMap.getCenter();

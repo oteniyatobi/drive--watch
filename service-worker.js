@@ -5,7 +5,7 @@
 // activate event purges ALL old caches so no user is ever stuck.
 // ==========================================
 
-const CACHE_NAME = 'driverwatch-v3';
+const CACHE_NAME = 'driverwatch-v4';
 const ASSETS = [
     '/',
     '/index.html',
@@ -14,7 +14,7 @@ const ASSETS = [
     '/app.js',
     '/login.js',
     '/map.js',
-    '/firebase-config.js',
+    '/supabase-config.js',
     '/favicon.png',
     '/manifest.json'
 ];
