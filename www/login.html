@@ -18,7 +18,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css">
   <link rel="stylesheet" href="style.css">
   <script>
-    document.documentElement.setAttribute('data-theme', localStorage.getItem('dw-theme') || 'light');
+    // Sign-in screens always use the light theme; the dark-mode switch only applies inside the app.
+    document.documentElement.setAttribute('data-theme', 'light');
   </script>
 </head>
 <body class="auth-body">

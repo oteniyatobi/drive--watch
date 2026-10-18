@@ -520,6 +520,57 @@ function attachVaultListener() {
         .subscribe();
 }
 
+// Profile cache: lets a returning driver on the same phone see the app instantly,
+// while the fresh profile loads from Supabase in the background.
+const PROFILE_CACHE_PREFIX = 'dw-profile:';
+
+function readCachedProfile(userId) {
+    try {
+        const raw = localStorage.getItem(PROFILE_CACHE_PREFIX + userId);
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function writeCachedProfile(userId, profile) {
+    try {
+        localStorage.setItem(PROFILE_CACHE_PREFIX + userId, JSON.stringify(profile));
+    } catch (e) { }
+}
+
+function clearCachedProfile(userId) {
+    try { localStorage.removeItem(PROFILE_CACHE_PREFIX + userId); } catch (e) { }
+}
+
+function applyProfileToUI() {
+    if (!currentUserData.email) currentUserData.email = currentAuthUser.email || '';
+    const navOp = document.getElementById('nav-operator-name');
+    if (navOp) navOp.innerText = (currentUserData.driverName || '').toUpperCase();
+
+    const dispName = document.getElementById('dispatch-contact-name');
+    const dispPhone = document.getElementById('dispatch-contact-phone');
+    const ec = currentUserData.emergencyContact;
+    if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
+    if (dispPhone) dispPhone.innerText = ec?.phone || '---';
+    renderProfile();
+}
+
+function startBackgroundWork() {
+    // Start cloud vault listener immediately (don't wait for IndexedDB)
+    attachVaultListener();
+    initDB().catch(e => console.warn('initDB failed on startup:', e)).finally(() => loadMediaVault());
+
+    // Pre-load the AI model once its libraries are in and the UI is idle,
+    // so the shader warm-up never blocks the first paint.
+    const warm = () => {
+        const idle = window.requestIdleCallback || (cb => setTimeout(cb, 800));
+        idle(() => preWarmModel().catch(() => { }));
+    };
+    if (document.readyState === 'complete') warm();
+    else window.addEventListener('load', warm, { once: true });
+}
+
 function revealApp() {
     document.body.classList.add('auth-ready');
     if (window.__clearSplashTimer) window.__clearSplashTimer();
@@ -534,36 +585,36 @@ async function bootSession() {
         return;
     }
     currentAuthUser = session.user;
+    console.log("Authenticated user found:", currentAuthUser.id);
+
+    // Fast path: show the app straight away from the profile saved on this device.
+    const cached = readCachedProfile(currentAuthUser.id);
+    if (cached) {
+        currentUserData = cached;
+        applyProfileToUI();
+        startBackgroundWork();
+        revealApp();
+    }
+
     try {
-        console.log("Authenticated user found:", currentAuthUser.id);
-        currentUserData = await fetchProfile(currentAuthUser.id);
-        if (!currentUserData) {
+        const fresh = await fetchProfile(currentAuthUser.id);
+        if (!fresh) {
+            clearCachedProfile(currentAuthUser.id);
             console.warn("User authenticated but profile missing. Opening setup...");
             window.location.replace('login.html?setup=1');
             return;
         }
-        if (!currentUserData.email) currentUserData.email = currentAuthUser.email || '';
+        currentUserData = fresh;
+        writeCachedProfile(currentAuthUser.id, fresh);
+        applyProfileToUI();
         console.log("User data loaded successfully.");
-        const navOp = document.getElementById('nav-operator-name');
-        if (navOp) navOp.innerText = currentUserData.driverName.toUpperCase();
-
-        const dispName = document.getElementById('dispatch-contact-name');
-        const dispPhone = document.getElementById('dispatch-contact-phone');
-        const ec = currentUserData.emergencyContact;
-        if (dispName && ec?.name) dispName.innerText = ec.name.toUpperCase();
-        if (dispPhone) dispPhone.innerText = ec?.phone || '---';
-
-        // Start cloud vault listener immediately (don't wait for IndexedDB)
-        attachVaultListener();
-        initDB().catch(e => console.warn('initDB failed on startup:', e)).finally(() => loadMediaVault());
-
-        // Trigger model pre-load for faster startup
-        preWarmModel();
-        renderProfile();
-        revealApp();
+        if (!cached) {
+            startBackgroundWork();
+            revealApp();
+        }
     } catch (e) {
         console.error("Error loading user profile from Supabase:", e);
-        // Even on error, we should probably allow the user to see the UI or retry
+        // Offline or Supabase unreachable: the cached profile (if any) keeps the app usable.
         revealApp();
     }
 }
@@ -2273,6 +2324,7 @@ async function toggleProfileEdit() {
             const { error } = await sb.from('profiles').update(profileToRow(updates)).eq('id', currentAuthUser.id);
             if (error) throw error;
             currentUserData = { ...currentUserData, ...updates };
+            writeCachedProfile(currentAuthUser.id, currentUserData);
             logEvent('PROFILE: Information updated successfully.', 't-succ');
             isProfileEditing = false;
             btn.innerText = 'Edit profile';

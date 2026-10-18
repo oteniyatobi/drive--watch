@@ -440,11 +440,12 @@
   </div>
 
   <!-- ── SCRIPTS ───────────────────────────────── -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-  <script src="app.js"></script>
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
-  <script src="map.js"></script>
+  <!-- All deferred: app.js runs first so the session and profile show without waiting on the AI and map libraries. -->
+  <script defer src="app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
+  <script defer src="map.js"></script>
   <script>
     /* ── Splash guard timeout — max 6s then force show UI ── */
     (function() {
@@ -479,7 +480,9 @@
       }
     }
     document.body.dataset.tab = 'monitor';
-    if (typeof syncThemeUI === 'function') syncThemeUI();
+    document.addEventListener('DOMContentLoaded', () => {
+      if (typeof syncThemeUI === 'function') syncThemeUI();
+    });
 
     /* ── Service Worker ──────────────────────── */
     if ('serviceWorker' in navigator) {
