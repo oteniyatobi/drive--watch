@@ -13,6 +13,7 @@ function showView(view) {
     });
     const tabs = document.getElementById('auth-tabs');
     tabs.hidden = view === 'verify-view' || view === 'onboarding-view';
+    document.getElementById('fleet-signup').hidden = tabs.hidden || isNativeApp;
     document.getElementById('tab-signin').classList.toggle('active', view === 'signin-view' || view === 'phone-view');
     document.getElementById('tab-signup').classList.toggle('active', view === 'signup-view');
     clearMessages();
@@ -290,6 +291,5 @@ document.getElementById('onb-signout').addEventListener('click', async () => {
     showView('signin-view');
 });
 
-if (isNativeApp) document.getElementById('fleet-signup').hidden = true;
 
 showView('signin-view');

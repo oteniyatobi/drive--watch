@@ -14,8 +14,13 @@ const NAV = [
     { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
-export function Wordmark({ className = '' }: { className?: string }) {
-    return <span className={`text-xl font-semibold tracking-tight ${className}`}>driverwatch</span>;
+export function Wordmark({ className = 'text-lg', onLight = false }: { className?: string; onLight?: boolean }) {
+    return (
+        <span className={`inline-flex items-center gap-[9px] font-medium leading-none tracking-[-.02em] ${className}`}>
+            <img src={`${import.meta.env.BASE_URL}brand/mark${onLight ? '' : '-reversed'}.png`} alt="" width={428} height={242} className="h-[1.4em] w-auto" />
+            driverwatch
+        </span>
+    );
 }
 
 function LiveStatus() {
