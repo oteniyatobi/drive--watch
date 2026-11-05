@@ -1,6 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Alert, Overview, Position } from './types';
+import { api } from './api';
+import type { Alert } from './types';
+
+const POLL_MS = 10000;
 
 interface LiveState {
     connected: boolean;
@@ -12,7 +15,7 @@ const LiveContext = createContext<LiveState>({ connected: false, toast: null, di
 
 export const useLive = () => useContext(LiveContext);
 
-/** One stream per signed-in session. Positions patch the map; alerts refresh whatever is showing them. */
+/** Vercel functions can't hold a stream open, so the dashboard asks for changes every few seconds. */
 export function LiveProvider({ children }: { children: ReactNode }) {
     const queryClient = useQueryClient();
     const [connected, setConnected] = useState(false);
@@ -20,33 +23,34 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     const toastTimer = useRef<number | undefined>(undefined);
 
     useEffect(() => {
-        const stream = new EventSource('/api/stream');
-        stream.onopen = () => setConnected(true);
-        stream.onerror = () => setConnected(false);
+        let seen: Set<string> | null = null;
 
-        stream.addEventListener('positions', (event) => {
-            const positions: Position[] = JSON.parse(event.data);
-            const byId = new Map(positions.map((p) => [p.id, p]));
-            queryClient.setQueryData<Overview>(['overview'], (current) => current && {
-                ...current,
-                vehicles: current.vehicles.map((v) => ({ ...v, ...byId.get(v.id) })),
-            });
-        });
+        async function poll() {
+            if (document.hidden) return;
+            try {
+                const critical = await api<Alert[]>('/alerts?severity=critical&open=true');
+                setConnected(true);
+                const fresh = seen ? critical.filter((alert) => !seen!.has(alert.id)) : [];
+                seen = new Set(critical.map((alert) => alert.id));
 
-        stream.addEventListener('alert', (event) => {
-            const alert: Alert = JSON.parse(event.data);
-            for (const key of ['overview', 'alerts', 'drivers', 'driver']) {
-                queryClient.invalidateQueries({ queryKey: [key] });
+                queryClient.invalidateQueries({ queryKey: ['overview'] });
+                if (fresh.length) {
+                    for (const key of ['alerts', 'drivers', 'driver']) {
+                        queryClient.invalidateQueries({ queryKey: [key] });
+                    }
+                    setToast(fresh[0]);
+                    window.clearTimeout(toastTimer.current);
+                    toastTimer.current = window.setTimeout(() => setToast(null), 8000);
+                }
+            } catch {
+                setConnected(false);
             }
-            if (alert.severity === 'critical') {
-                setToast(alert);
-                window.clearTimeout(toastTimer.current);
-                toastTimer.current = window.setTimeout(() => setToast(null), 8000);
-            }
-        });
+        }
 
+        void poll();
+        const timer = window.setInterval(poll, POLL_MS);
         return () => {
-            stream.close();
+            window.clearInterval(timer);
             window.clearTimeout(toastTimer.current);
         };
     }, [queryClient]);

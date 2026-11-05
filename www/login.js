@@ -66,10 +66,27 @@ function showOnboardingUI(user) {
     showView('onboarding-view');
 }
 
-/** Signed-in users with a profile go straight to the app; new users finish onboarding. */
+/** fleet_members can only be written by the server, so this role can't be claimed from the browser. */
+async function isFleetManager(user) {
+    if (user.user_metadata?.fleet_company) return true; // Signed up as a company; the API finishes the setup.
+    const { data, error } = await sb.from('fleet_members').select('user_id').eq('user_id', user.id).maybeSingle();
+    if (error) throw error;
+    return !!data;
+}
+
+/** Managers go to the fleet dashboard, drivers with a profile go to the app, and new users finish onboarding. */
 async function routeSignedInUser(user) {
     currentAuthenticatedUser = user;
     try {
+        if (await isFleetManager(user)) {
+            if (isNativeApp) {
+                await sb.auth.signOut();
+                showMessage('signin-msg', 'The fleet dashboard is on the web. Open app.driverwatch.tech in a browser.');
+                return;
+            }
+            window.location.replace('/fleet/');
+            return;
+        }
         const profile = await fetchProfile(user.id);
         if (profile) {
             window.location.replace('/');
@@ -272,5 +289,7 @@ document.getElementById('onb-signout').addEventListener('click', async () => {
     await sb.auth.signOut();
     showView('signin-view');
 });
+
+if (isNativeApp) document.getElementById('fleet-signup').hidden = true;
 
 showView('signin-view');

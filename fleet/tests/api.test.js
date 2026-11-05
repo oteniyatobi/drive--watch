@@ -1,46 +1,52 @@
 import assert from 'node:assert';
+import fs from 'node:fs';
 import test, { after, before } from 'node:test';
 
 process.env.PGLITE_DIR = 'memory';
-process.env.JWT_SECRET = 'test-secret';
+process.env.DATABASE_URL = ''; // Tests must never touch a real database, even if .env sets one.
 
 const { connect, closeDb, query } = await import('../server/db.js');
 const { createApp } = await import('../server/app.js');
+const { setTokenVerifier } = await import('../server/auth.js');
 const { seedDemo } = await import('../server/seed.js');
 const { csvCell } = await import('../server/api.js');
-const { DEMO_LOGIN } = await import('../server/config.js');
-const { publish } = await import('../server/bus.js');
 
-let server, base, demo, other;
+const USERS = {
+    'demo-token': { id: '11111111-1111-4111-8111-111111111111', email: 'manager@demo-fleet.example', user_metadata: {} },
+    'other-token': {
+        id: '22222222-2222-4222-8222-222222222222',
+        email: 'sam@other.example',
+        user_metadata: { fleet_company: 'Other Co', full_name: 'Sam' },
+    },
+    'driver-token': { id: '33333333-3333-4333-8333-333333333333', email: 'driver@example.com', user_metadata: {} },
+};
+
+let server, base, demo, other, driverAccount;
 
 class Client {
-    cookie = '';
+    constructor(token) {
+        this.token = token;
+    }
+
     async call(path, { method = 'GET', body } = {}) {
-        const res = await fetch(base + path, {
-            method,
-            headers: { 'Content-Type': 'application/json', Cookie: this.cookie },
-            body: body ? JSON.stringify(body) : undefined,
-        });
-        const set = res.headers.get('set-cookie');
-        if (set) this.cookie = set.split(';')[0];
+        const headers = { 'Content-Type': 'application/json' };
+        if (this.token) headers.Authorization = `Bearer ${this.token}`;
+        const res = await fetch(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
         const isJson = res.headers.get('content-type')?.includes('json');
         return { status: res.status, headers: res.headers, body: isJson ? await res.json() : await res.text() };
     }
 }
 
 before(async () => {
+    setTokenVerifier(async (token) => USERS[token] ?? null);
     await connect();
-    await seedDemo();
+    const owner = USERS['demo-token'];
+    await seedDemo({ owner: { id: owner.id, name: 'Demo Manager', email: owner.email } });
     server = createApp().listen(0);
-    base = `http://127.0.0.1:${server.address().port}/api`;
-    demo = new Client();
-    other = new Client();
-    assert.strictEqual((await demo.call('/auth/login', { method: 'POST', body: DEMO_LOGIN })).status, 200);
-    const registered = await other.call('/auth/register', {
-        method: 'POST',
-        body: { companyName: 'Other Co', name: 'Sam', email: 'sam@other.example', password: 'long-enough-password' },
-    });
-    assert.strictEqual(registered.status, 201);
+    base = `http://127.0.0.1:${server.address().port}/api/fleet`;
+    demo = new Client('demo-token');
+    other = new Client('other-token');
+    driverAccount = new Client('driver-token');
 });
 
 after(async () => {
@@ -68,17 +74,36 @@ test('overview numbers agree with the drivers list', async () => {
 
 test('all data routes need a login', async () => {
     const anonymous = new Client();
-    for (const path of ['/overview', '/drivers', '/alerts', '/reports', '/settings', '/stream']) {
+    for (const path of ['/auth/me', '/overview', '/drivers', '/alerts', '/reports', '/settings']) {
         assert.strictEqual((await anonymous.call(path)).status, 401, path);
     }
 });
 
-test('a wrong password and a forged session are both refused', async () => {
-    const client = new Client();
-    const res = await client.call('/auth/login', { method: 'POST', body: { email: DEMO_LOGIN.email, password: 'wrong' } });
-    assert.strictEqual(res.status, 401);
-    client.cookie = 'dw_session=eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.';
-    assert.strictEqual((await client.call('/drivers')).status, 401);
+test('a forged token is refused', async () => {
+    assert.strictEqual((await new Client('forged').call('/drivers')).status, 401);
+});
+
+test('a driver account is not a fleet manager', async () => {
+    for (const path of ['/auth/me', '/overview', '/drivers', '/alerts', '/reports', '/settings']) {
+        assert.strictEqual((await driverAccount.call(path)).status, 403, path);
+    }
+    const [row] = await query(`SELECT count(*)::int AS n FROM fleet_members WHERE user_id = $1`, [USERS['driver-token'].id]);
+    assert.strictEqual(row.n, 0);
+});
+
+test('a fleet sign-up gets its company on first use, and only once', async () => {
+    const me = (await other.call('/auth/me')).body;
+    assert.strictEqual(me.companyName, 'Other Co');
+    assert.strictEqual(me.name, 'Sam');
+    await other.call('/auth/me');
+    const [row] = await query(`SELECT count(*)::int AS n FROM companies WHERE name = 'Other Co'`);
+    assert.strictEqual(row.n, 1);
+});
+
+test('supabase/fleet.sql has the same tables as the local schema', () => {
+    const local = fs.readFileSync(new URL('../server/schema.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n').trim();
+    const hosted = fs.readFileSync(new URL('../../supabase/fleet.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    assert.ok(hosted.includes(local));
 });
 
 test('one company can never see or change another company', async () => {
@@ -157,26 +182,4 @@ test('notification settings require a destination when enabled', async () => {
     const saved = (await other.call('/settings')).body.notifications;
     assert.strictEqual(saved.sms_enabled, true);
     assert.strictEqual(saved.email_enabled, false);
-});
-
-test('live events reach only the company they belong to', async () => {
-    const open = async (client) => {
-        const controller = new AbortController();
-        const res = await fetch(`${base}/stream`, { headers: { Cookie: client.cookie }, signal: controller.signal });
-        return { reader: res.body.getReader(), controller };
-    };
-    const [demoCompany] = await query(`SELECT company_id FROM users WHERE email = $1`, [DEMO_LOGIN.email]);
-    const mine = await open(demo);
-    const theirs = await open(other);
-    await mine.reader.read();
-    await theirs.reader.read();
-
-    publish(demoCompany.company_id, { type: 'alert', data: { secret: 'demo-only' } });
-    const received = new TextDecoder().decode((await mine.reader.read()).value);
-    assert.match(received, /demo-only/);
-
-    const leaked = await Promise.race([theirs.reader.read(), new Promise((r) => setTimeout(() => r(null), 200))]);
-    assert.strictEqual(leaked, null);
-    mine.controller.abort();
-    theirs.controller.abort();
 });

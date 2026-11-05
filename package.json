@@ -5,8 +5,9 @@
     "scripts": {
         "start": "npx serve . --listen 3000",
         "test": "node --test \"tests/*.test.js\"",
-        "build": "npm run build:web",
+        "build": "npm run build:web && npm run build:fleet",
         "build:web": "node scripts/build-web.js",
+        "build:fleet": "npm --prefix fleet ci && npm --prefix fleet run build",
         "cap:sync": "npm run build:web && npx cap sync android",
         "cap:open": "npx cap open android",
         "cap:run": "npm run build:web && npx cap run android"
@@ -17,6 +18,9 @@
         "@capacitor/core": "^8.3.1",
         "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
         "@supabase/supabase-js": "^2.49.1",
+        "express": "^5.3.0",
+        "helmet": "^8.3.0",
+        "pg": "^8.23.1",
         "twilio": "^5.0.0"
     },
     "engines": {

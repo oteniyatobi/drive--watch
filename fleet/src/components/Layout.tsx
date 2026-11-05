@@ -1,10 +1,9 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { Bell, FileBarChart, LayoutDashboard, LogOut, Menu, Settings, Users, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { ALERT_LABELS } from '../lib/format';
 import { LiveProvider, useLive } from '../lib/live';
+import { SIGN_IN_URL, supabase } from '../lib/supabase';
 import type { Me } from '../lib/types';
 
 const NAV = [
@@ -46,13 +45,9 @@ function CriticalToast() {
 }
 
 function Sidebar({ me, open }: { me: Me; open: boolean }) {
-    const navigate = useNavigate();
-    const queryClient = useQueryClient();
-
     async function signOut() {
-        await api('/auth/logout', { method: 'POST' });
-        queryClient.clear();
-        navigate('/login');
+        await supabase.auth.signOut();
+        window.location.assign(SIGN_IN_URL);
     }
 
     return (

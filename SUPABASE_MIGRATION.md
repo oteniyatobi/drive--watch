@@ -81,6 +81,13 @@ Firebase password hashes can't be imported into Supabase, so existing users need
 - **To bring old profiles and recordings across:** export the Firestore `users` collection from the Firebase console. Once each person has a new Supabase account, insert their profile and recordings rows with the new user id, using the same column names as in `schema.sql`.
 - **If you have only a few test users:** it's simpler to let them sign up fresh.
 
+## Fleet managers
+Drivers and fleet managers share this login. To turn the fleet dashboard on:
+1. Run `supabase/fleet.sql` in the SQL Editor.
+2. Add `DATABASE_URL` in Vercel, using the **Transaction pooler** connection string from the **Connect** button in Supabase.
+
+See `fleet/README.md` for how roles work.
+
 ## Step 9: Clean up after cutover
 When everything works on Supabase, you can delete the Firebase leftovers:
 - `firebase-config.js`, `firestore.rules`, `firestore.indexes.json`, `storage.rules`

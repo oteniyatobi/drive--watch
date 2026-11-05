@@ -1,8 +1,5 @@
 import express from 'express';
-import rateLimit from 'express-rate-limit';
-import { endSession, hashPassword, requireAuth, startSession, verifyPassword } from './auth.js';
-import { bus } from './bus.js';
-import { DEMO_ENABLED, DEMO_LOGIN } from './config.js';
+import { requireAuth } from './auth.js';
 import { one, query } from './db.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,57 +89,7 @@ async function buildReport(req) {
 export function createApi() {
     const api = express.Router();
 
-    const authLimiter = rateLimit({
-        windowMs: 15 * 60000,
-        limit: 20,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: { error: 'Too many attempts. Try again in a few minutes.' },
-    });
-
-    api.get('/auth/config', (req, res) => {
-        res.json({ demo: DEMO_ENABLED ? DEMO_LOGIN : null });
-    });
-
-    api.post('/auth/register', authLimiter, async (req, res) => {
-        const companyName = text(req.body?.companyName);
-        const name = text(req.body?.name);
-        const email = text(req.body?.email).toLowerCase();
-        const password = typeof req.body?.password === 'string' ? req.body.password : '';
-        if (!companyName || !name) return badRequest(res, 'Company name and your name are required.');
-        if (!EMAIL.test(email)) return badRequest(res, 'Enter a valid company email.');
-        if (password.length < 10 || password.length > 200) return badRequest(res, 'Password must be at least 10 characters.');
-        if (await one(`SELECT 1 FROM users WHERE email = $1`, [email])) {
-            return res.status(409).json({ error: 'An account with this email already exists.' });
-        }
-        const hash = await hashPassword(password);
-        const company = await one(`INSERT INTO companies (name) VALUES ($1) RETURNING id`, [companyName]);
-        const user = await one(
-            `INSERT INTO users (company_id, name, email, password_hash) VALUES ($1,$2,$3,$4) RETURNING id`,
-            [company.id, name, email, hash],
-        );
-        await query(`INSERT INTO notification_prefs (company_id, email_to) VALUES ($1,$2)`, [company.id, email]);
-        startSession(res, user.id);
-        res.status(201).json({ ok: true });
-    });
-
-    api.post('/auth/login', authLimiter, async (req, res) => {
-        const email = text(req.body?.email).toLowerCase();
-        const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 200) : '';
-        const user = await one(`SELECT id, password_hash FROM users WHERE email = $1`, [email]);
-        if (!user || !(await verifyPassword(password, user.password_hash))) {
-            return res.status(401).json({ error: 'Incorrect email or password.' });
-        }
-        startSession(res, user.id);
-        res.json({ ok: true });
-    });
-
-    api.post('/auth/logout', (req, res) => {
-        endSession(res);
-        res.json({ ok: true });
-    });
-
-    // Everything below belongs to one company, taken from the session and never from the request.
+    // Everything here belongs to one company, taken from the signed-in user and never from the request.
     api.use(requireAuth);
 
     api.get('/auth/me', (req, res) => {
@@ -240,19 +187,6 @@ export function createApi() {
         );
         if (!alert) return res.status(404).json({ error: 'Alert not found.' });
         res.json({ ok: true });
-    });
-
-    api.get('/stream', (req, res) => {
-        res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' });
-        res.flushHeaders();
-        res.write('retry: 3000\n\n');
-        const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`);
-        const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
-        bus.on(req.companyId, send);
-        req.on('close', () => {
-            clearInterval(heartbeat);
-            bus.off(req.companyId, send);
-        });
     });
 
     api.get('/reports', async (req, res) => {

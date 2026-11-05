@@ -3,8 +3,8 @@ import { Download, Printer } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertBars, AlertLegend, ScoreLine } from '../components/Charts';
-import { Button, Card, Empty, ErrorNote, Loading, PageHeader, ScoreCell, Segmented, Stat, buttonClass, selectClass, tdClass, thClass } from '../components/ui';
-import { api } from '../lib/api';
+import { Button, Card, Empty, ErrorNote, Loading, PageHeader, ScoreCell, Segmented, Stat, selectClass, tdClass, thClass } from '../components/ui';
+import { api, download } from '../lib/api';
 import { formatDay } from '../lib/format';
 import type { Driver, Report } from '../lib/types';
 
@@ -40,7 +40,7 @@ export default function Reports() {
                 subtitle={data ? `${data.company} · ${scope} · last ${data.days} days` : undefined}
                 actions={(
                     <>
-                        <a href={`/api/reports/export.csv?${search}`} className={buttonClass('secondary')}><Download size={16} aria-hidden />Export CSV</a>
+                        <Button variant="secondary" onClick={() => download(`/reports/export.csv?${search}`, `driverwatch-${period}ly-report.csv`)}><Download size={16} aria-hidden />Export CSV</Button>
                         <Button variant="secondary" onClick={() => window.print()}><Printer size={16} aria-hidden />Print or save PDF</Button>
                     </>
                 )}

@@ -1,5 +1,4 @@
-import { hashPassword } from './auth.js';
-import { DEMO_LOGIN } from './config.js';
+import { DEMO_COMPANY_ID } from './config.js';
 import { one, query } from './db.js';
 import { PLACES, buildRoute, routeLengthKm } from './places.js';
 
@@ -47,21 +46,24 @@ function pickSeverity(r, riskiness) {
     return r < 0.55 ? 'medium' : 'low';
 }
 
-export async function seedDemo({ now = Date.now() } = {}) {
+/** Fills the demo company and makes `owner` (a Supabase user) its manager. */
+export async function seedDemo({ owner, now = Date.now() }) {
     const rand = makeRandom(20260105);
     const pick = (list) => list[Math.floor(rand() * list.length)];
 
     const company = await one(
-        `INSERT INTO companies (name, address, phone) VALUES ('Demo Logistics Ltd', 'KG 7 Ave, Kigali', '+250 788 555 000') RETURNING id`,
+        `INSERT INTO companies (id, name, address, phone) VALUES ($1, 'Demo Logistics Ltd', 'KG 7 Ave, Kigali', '+250 788 555 000') RETURNING id`,
+        [DEMO_COMPANY_ID],
     );
     await query(
-        `INSERT INTO users (company_id, name, email, password_hash) VALUES ($1, 'Demo Manager', $2, $3)`,
-        [company.id, DEMO_LOGIN.email, await hashPassword(DEMO_LOGIN.password)],
+        `INSERT INTO fleet_members (user_id, company_id, name, email) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET company_id = $2`,
+        [owner.id, company.id, owner.name, owner.email],
     );
     await query(
         `INSERT INTO notification_prefs (company_id, email_enabled, sms_enabled, email_to, sms_to)
          VALUES ($1, true, false, $2, '')`,
-        [company.id, DEMO_LOGIN.email],
+        [company.id, owner.email],
     );
 
     const scores = [];
@@ -127,12 +129,9 @@ export async function seedDemo({ now = Date.now() } = {}) {
 }
 
 export async function removeDemo() {
-    await query(
-        `DELETE FROM companies WHERE id IN (SELECT company_id FROM users WHERE email = $1)`,
-        [DEMO_LOGIN.email],
-    );
+    await query(`DELETE FROM companies WHERE id = $1`, [DEMO_COMPANY_ID]);
 }
 
 export async function demoCompanyId() {
-    return (await one(`SELECT company_id FROM users WHERE email = $1`, [DEMO_LOGIN.email]))?.company_id ?? null;
+    return (await one(`SELECT id FROM companies WHERE id = $1`, [DEMO_COMPANY_ID]))?.id ?? null;
 }

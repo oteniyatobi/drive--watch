@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
 import { createApi } from './api.js';
@@ -22,8 +21,7 @@ export function createApp() {
         },
     }));
     app.use(express.json({ limit: '50kb' }));
-    app.use(cookieParser());
-    app.use('/api', createApi());
+    app.use('/api/fleet', createApi());
     app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
     const dist = path.join(ROOT, 'dist');

@@ -7,12 +7,12 @@ CREATE TABLE IF NOT EXISTS companies (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS users (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+-- A row here is what makes a Supabase account a fleet manager.
+CREATE TABLE IF NOT EXISTS fleet_members (
+  user_id uuid PRIMARY KEY,
   company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   name text NOT NULL,
-  email text NOT NULL UNIQUE,
-  password_hash text NOT NULL,
+  email text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now()
 );
 

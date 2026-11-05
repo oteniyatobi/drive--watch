@@ -9,7 +9,7 @@ export async function connect() {
     if (client) return client;
     if (process.env.DATABASE_URL) {
         const { default: pg } = await import('pg');
-        const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+        const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
         client = {
             query: (sql, params) => pool.query(sql, params),
             exec: (sql) => pool.query(sql),
@@ -24,8 +24,9 @@ export async function connect() {
             exec: (sql) => lite.exec(sql),
             close: () => lite.close(),
         };
+        // Supabase gets its tables from supabase/fleet.sql instead.
+        await client.exec(fs.readFileSync(path.join(ROOT, 'server/schema.sql'), 'utf8'));
     }
-    await client.exec(fs.readFileSync(path.join(ROOT, 'server/schema.sql'), 'utf8'));
     return client;
 }
 

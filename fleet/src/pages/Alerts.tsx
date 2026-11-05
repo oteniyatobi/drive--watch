@@ -34,7 +34,7 @@ export default function Alerts() {
 
     return (
         <>
-            <PageHeader title="Alerts" subtitle={connected ? 'New alerts appear here as they happen.' : 'Reconnecting to the live feed.'} />
+            <PageHeader title="Alerts" subtitle={connected ? 'New alerts appear here as they happen.' : 'Reconnecting.'} />
             <Card>
                 <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
                     <select aria-label="Alert type" value={type} onChange={(event) => setType(event.target.value as AlertType | '')} className={selectClass}>

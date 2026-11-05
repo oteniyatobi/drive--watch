@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
-import { Loading } from './components/ui';
-import { api } from './lib/api';
+import { ErrorNote, Loading } from './components/ui';
+import { api, type ApiError } from './lib/api';
 import type { Me } from './lib/types';
 import Alerts from './pages/Alerts';
 import Dashboard from './pages/Dashboard';
@@ -15,7 +15,12 @@ import Settings from './pages/Settings';
 function RequireAuth() {
     const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/auth/me') });
     if (me.isPending) return <Loading full />;
-    if (me.isError) return <Navigate to="/login" replace />;
+    if (me.isError) {
+        // 401 and 403 are already on their way to another page.
+        const status = (me.error as ApiError).status;
+        if (status === 401 || status === 403) return <Loading full />;
+        return <div className="p-8"><ErrorNote message={me.error.message} /></div>;
+    }
     return <Layout me={me.data}><Outlet /></Layout>;
 }
 

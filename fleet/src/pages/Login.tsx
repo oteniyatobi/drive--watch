@@ -1,20 +1,17 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Wordmark } from '../components/Layout';
 import { Button, Field } from '../components/ui';
-import { api } from '../lib/api';
+import { SIGN_IN_URL, supabase } from '../lib/supabase';
 
 export default function Login({ mode }: { mode: 'login' | 'register' }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
     const [busy, setBusy] = useState(false);
     const [form, setForm] = useState({ companyName: '', name: '', email: '', password: '' });
-    const config = useQuery({
-        queryKey: ['auth-config'],
-        queryFn: () => api<{ demo: { email: string; password: string } | null }>('/auth/config'),
-    });
     const registering = mode === 'register';
 
     useEffect(() => {
@@ -29,17 +26,33 @@ export default function Login({ mode }: { mode: 'login' | 'register' }) {
         event.preventDefault();
         setBusy(true);
         setError('');
-        try {
-            await api(registering ? '/auth/register' : '/auth/login', { method: 'POST', body: form });
+        setNotice('');
+        const email = form.email.trim();
+        const { data, error: failure } = registering
+            ? await supabase.auth.signUp({
+                email,
+                password: form.password,
+                options: {
+                    // The API creates the company on the first signed-in request, after the email is confirmed.
+                    data: { fleet_company: form.companyName.trim(), full_name: form.name.trim() },
+                    emailRedirectTo: `${window.location.origin}/login.html`,
+                },
+            })
+            : await supabase.auth.signInWithPassword({ email, password: form.password });
+        setBusy(false);
+
+        if (failure) {
+            setError(failure.message);
+        } else if (registering && data.user?.identities?.length === 0) {
+            // Supabase hides whether an email is taken by returning a user with no identities.
+            setError('An account with this email already exists. Sign in instead.');
+        } else if (!data.session) {
+            setNotice('Check your inbox and click the confirmation link to finish creating your account.');
+        } else {
             queryClient.clear();
             navigate('/');
-        } catch (failure) {
-            setError((failure as Error).message);
-            setBusy(false);
         }
     }
-
-    const demo = config.data?.demo;
 
     return (
         <div className="grid min-h-full lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -79,21 +92,16 @@ export default function Login({ mode }: { mode: 'login' | 'register' }) {
                     />
 
                     {error && <p role="alert" className="text-critical">{error}</p>}
+                    {notice && <p role="status" className="text-teal-dark">{notice}</p>}
                     <Button type="submit" disabled={busy} className="w-full">
                         {busy ? 'Please wait' : registering ? 'Create account' : 'Sign in'}
                     </Button>
 
-                    {!registering && demo && (
-                        <Button variant="secondary" className="w-full" onClick={() => setForm((f) => ({ ...f, email: demo.email, password: demo.password }))}>
-                            Fill in demo account
-                        </Button>
-                    )}
-
                     <p className="text-center text-muted">
                         {registering ? 'Already have an account? ' : 'New to driverwatch? '}
-                        <Link to={registering ? '/login' : '/register'} className="font-semibold text-teal-dark hover:underline">
+                        <a href={registering ? SIGN_IN_URL : '/fleet/register'} className="font-semibold text-teal-dark hover:underline">
                             {registering ? 'Sign in' : 'Create an account'}
-                        </Link>
+                        </a>
                     </p>
                 </form>
             </div>

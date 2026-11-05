@@ -20,5 +20,19 @@
                 }
             ]
         }
+    ],
+    "rewrites": [
+        {
+            "source": "/api/fleet/:path*",
+            "destination": "/api/fleet?path=:path*"
+        },
+        {
+            "source": "/fleet",
+            "destination": "/fleet/index.html"
+        },
+        {
+            "source": "/fleet/:path*",
+            "destination": "/fleet/index.html"
+        }
     ]
 }

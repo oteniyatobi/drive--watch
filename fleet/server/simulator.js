@@ -1,4 +1,3 @@
-import { publish } from './bus.js';
 import { query } from './db.js';
 import { PLACES, buildRoute } from './places.js';
 
@@ -41,7 +40,6 @@ export function startSimulator(companyId) {
                 `SELECT id, name, vehicle_plate, lat, lng FROM drivers WHERE company_id = $1 AND status = 'active'`,
                 [companyId],
             );
-            const positions = [];
             for (const driver of drivers) {
                 let leg = legs.get(driver.id);
                 if (!leg || leg.progress >= 1) {
@@ -55,9 +53,7 @@ export function startSimulator(companyId) {
                     `UPDATE drivers SET lat = $2, lng = $3, heading = $4, speed_kmh = $5, last_seen = now() WHERE id = $1`,
                     [driver.id, position.lat, position.lng, position.heading, speed],
                 );
-                positions.push({ id: driver.id, ...position, speed_kmh: speed });
             }
-            publish(companyId, { type: 'positions', data: positions });
 
             if (drivers.length && Date.now() >= nextAlertAt) {
                 nextAlertAt = Date.now() + 15000 + Math.random() * 30000;
@@ -65,15 +61,11 @@ export function startSimulator(companyId) {
                 const roll = Math.random();
                 const severity = roll < 0.18 ? 'critical' : roll < 0.6 ? 'medium' : 'low';
                 const type = ['drowsiness', 'distraction', 'phone_use'][Math.floor(Math.random() * 3)];
-                const [alert] = await query(
+                await query(
                     `INSERT INTO alerts (company_id, driver_id, type, severity, lat, lng)
-                     SELECT company_id, id, $2, $3, lat, lng FROM drivers WHERE id = $1 RETURNING *`,
+                     SELECT company_id, id, $2, $3, lat, lng FROM drivers WHERE id = $1`,
                     [driver.id, type, severity],
                 );
-                publish(companyId, {
-                    type: 'alert',
-                    data: { ...alert, driver_name: driver.name, vehicle_plate: driver.vehicle_plate },
-                });
             }
         } catch (error) {
             console.error('simulator:', error.message);
