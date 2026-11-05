@@ -4,8 +4,11 @@
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 const { getSupabaseAdmin, getUserIdFromRequest, AuthError } = require('./_lib/supabaseAdmin');
+const { handleCors } = require('./_lib/cors');
 
 module.exports = async (req, res) => {
+    if (handleCors(req, res)) return;
+
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }

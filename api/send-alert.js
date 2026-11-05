@@ -5,6 +5,10 @@
 // ==========================================
 
 const twilio = require('twilio');
+const { getSupabaseAdmin, getUserIdFromRequest, AuthError } = require('./_lib/supabaseAdmin');
+const { handleCors } = require('./_lib/cors');
+
+const MAPS_LINK_RE = /^https:\/\/maps\.google\.com\/\?q=-?\d+(\.\d+)?,-?\d+(\.\d+)?$/;
 
 function normalizeAlertType(body) {
     const raw = (body.alertType || '').toLowerCase();
@@ -16,6 +20,8 @@ function normalizeAlertType(body) {
 }
 
 module.exports = async (req, res) => {
+    if (handleCors(req, res)) return;
+
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -24,9 +30,18 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'Missing or invalid request body' });
     }
 
+    let uid;
+    try {
+        uid = await getUserIdFromRequest(req);
+    } catch (e) {
+        if (e instanceof AuthError) {
+            return res.status(401).json({ error: e.message });
+        }
+        console.error('send-alert auth:', e);
+        return res.status(500).json({ error: 'Could not verify login.' });
+    }
+
     const {
-        to,
-        driverName,
         mapsLink,
         time,
         isImpact,
@@ -36,8 +51,20 @@ module.exports = async (req, res) => {
 
     const alertType = normalizeAlertType(req.body);
 
+    // The recipient always comes from the driver's saved profile, never from the request.
+    const { data: profile, error: profileError } = await getSupabaseAdmin()
+        .from('profiles')
+        .select('driver_name, emergency_contact_phone')
+        .eq('id', uid)
+        .maybeSingle();
+    if (profileError) {
+        console.error('send-alert profile:', profileError);
+        return res.status(500).json({ error: 'Could not load driver profile.' });
+    }
+
+    const to = profile?.emergency_contact_phone;
     if (!to) {
-        return res.status(400).json({ error: 'Missing emergency contact phone number.' });
+        return res.status(400).json({ error: 'No emergency contact saved on this profile.' });
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -55,11 +82,11 @@ module.exports = async (req, res) => {
 
     const cleanPhone = String(to).replace(/\D/g, '');
     const toWhatsApp = `whatsapp:+${cleanPhone}`;
-    const who = driverName || 'The driver';
-    const when = time || new Date().toLocaleString();
-    const loc = mapsLink || 'Location unavailable';
-    const spd = speedKmh != null ? String(speedKmh) : null;
-    const lim = speedLimitKmh != null ? String(speedLimitKmh) : null;
+    const who = profile.driver_name || 'The driver';
+    const when = time ? String(time).slice(0, 64) : new Date().toLocaleString();
+    const loc = MAPS_LINK_RE.test(mapsLink) ? mapsLink : 'Location unavailable';
+    const spd = Number.isFinite(speedKmh) ? String(speedKmh) : null;
+    const lim = Number.isFinite(speedLimitKmh) ? String(speedLimitKmh) : null;
 
     let messageBody;
 

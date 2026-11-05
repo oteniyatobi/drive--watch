@@ -43,6 +43,8 @@ const _isMobileApp = typeof window !== 'undefined' && window.Capacitor &&
     typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
 const _isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 const IS_MOBILE = _isMobileApp || _isMobileUA;
+// The native app serves its pages from the device, so API calls need the hosted address.
+const API_BASE = _isMobileApp ? 'https://app.driverwatch.tech' : '';
 /** On mobile, throttle the canvas mirror to ~10fps (100ms) to significantly cut GPU load */
 const MIRROR_THROTTLE_MS = IS_MOBILE ? 100 : 0;
 /** On mobile, predict every 350ms (3/sec) instead of 150ms (7/sec) */
@@ -159,6 +161,9 @@ let vaultChannel = null;
 let currentAuthUser = null;
 /** Merged local + cloud rows for search / display */
 let vaultEntriesCache = [];
+const uploadsInFlight = new Set();
+const uploadsFailed = new Set(); // Not retried automatically until the connection returns
+let uploadRetryRunning = false;
 
 // ==========================================
 // SUBSYSTEMS: AUDIO & SYNTHESIS
@@ -1281,7 +1286,6 @@ async function startRealDispatch(isImpact = false) {
             try {
                 logEvent(`WHATSAPP: Sending ${isImpact ? 'impact' : 'drowsy'} alert to ${contactName}...`, 't-info');
                 const payload = {
-                    to: contactPhone,
                     driverName: driverName,
                     mapsLink: mapsLink,
                     time: new Date().toLocaleString(),
@@ -1291,9 +1295,13 @@ async function startRealDispatch(isImpact = false) {
                     speedLimitKmh: currentSpeedLimit
                 };
 
-                const response = await fetch('/api/send-alert', {
+                const accessToken = await getAccessToken();
+                const response = await fetch(`${API_BASE}/api/send-alert`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${accessToken}`
+                    },
                     body: JSON.stringify(payload)
                 });
                 const result = await readJsonResponse(response);
@@ -1475,11 +1483,14 @@ async function notifySpeedingContactOnce() {
         : 'Location unavailable';
     try {
         logEvent('WHATSAPP: Sending speeding advisory to emergency contact...', 't-info');
-        const response = await fetch('/api/send-alert', {
+        const accessToken = await getAccessToken();
+        const response = await fetch(`${API_BASE}/api/send-alert`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`
+            },
             body: JSON.stringify({
-                to: phone,
                 driverName,
                 mapsLink,
                 time: new Date().toLocaleString(),
@@ -1791,7 +1802,8 @@ function saveVideoToDB(id, blob, type) {
             blob: blob,
             type: type,
             timestamp: new Date().toLocaleString(),
-            referenceId: referenceId
+            referenceId: referenceId,
+            userId: currentAuthUser?.id || null
         });
     }
 
@@ -1813,12 +1825,14 @@ async function saveVideoToCloud(id, blob, type, referenceId) {
         logEvent('CLOUD: Empty video blob — upload skipped.', 't-warn');
         return;
     }
+    if (uploadsInFlight.has(id)) return;
+    uploadsInFlight.add(id);
     try {
         logEvent(`CLOUD: Uploading ${type} to Cloudinary vault...`, 't-info');
         const idToken = await getAccessToken();
 
         // Step 1: Get Cloudinary signed upload parameters from our server
-        const presignRes = await fetch('/api/recording-presign', {
+        const presignRes = await fetch(`${API_BASE}/api/recording-presign`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1869,11 +1883,16 @@ async function saveVideoToCloud(id, blob, type, referenceId) {
         if (insertError) throw insertError;
 
         logEvent(`CLOUD: ✅ ${type} saved to Cloudinary vault (ref ${refId}).`, 't-succ');
+        uploadsFailed.delete(id);
+        uploadsInFlight.delete(id);
         loadMediaVault();
     } catch (e) {
+        uploadsFailed.add(id);
         console.error('Cloud Upload Failed:', e);
         const msg = e && e.message ? e.message : (e ? String(e) : 'Unknown error');
         logEvent(`CLOUD: ⚠️ Sync failed — ${msg}`, 't-warn');
+    } finally {
+        uploadsInFlight.delete(id);
     }
 }
 
@@ -1919,9 +1938,13 @@ function renderVaultTable(filterText) {
     sorted.forEach((video) => {
         const item = document.createElement('div');
         item.className = 'vault-item';
-        const sourceTag = video.isLocal
+        const deviceOnly = video.isLocal && !video.synced;
+        const sourceTag = deviceOnly
             ? '<span class="vault-src">On device</span>'
             : '<span class="vault-src cloud">Cloud</span>';
+        const uploadButton = deviceOnly
+            ? `<button type="button" class="btn-upload" onclick='uploadLocalVideo(${JSON.stringify(video.id)})'>Upload</button>`
+            : '';
         const typeLabel = escapeHtml(video.type);
         const timeLabel = escapeHtml(String(video.timestamp));
         const refId = escapeHtml(video.referenceId || makeReferenceId(video.id));
@@ -1932,6 +1955,7 @@ function renderVaultTable(filterText) {
                 <span class="vault-ref">Ref ${refId}</span>
             </div>
             <div class="vault-actions">
+                ${uploadButton}
                 <button type="button" class="btn-play" onclick='playVideo(${JSON.stringify(video.id)}, ${video.isLocal}, ${JSON.stringify(video.url || "")})'>Play</button>
                 <button type="button" class="btn-copy-ref" title="Copy reference for your records" onclick='copyVaultReference(${JSON.stringify(video.id)}, ${JSON.stringify(video.referenceId || makeReferenceId(video.id))}, ${JSON.stringify(video.type)}, ${JSON.stringify(String(video.timestamp))})'>Copy ref</button>
                 <button type="button" class="btn-del" onclick='deleteVideo(${JSON.stringify(video.id)}, ${video.isLocal})'>Delete</button>
@@ -1960,6 +1984,47 @@ function copyVaultReference(videoId, referenceId, typeLabel, timeLabel) {
     }
 }
 
+/** Sends this driver's unsynced phone videos to the cloud, one at a time. */
+async function retryPendingUploads(videos, userId) {
+    if (uploadRetryRunning) return;
+    uploadRetryRunning = true;
+    try {
+        for (const video of videos) {
+            const pendingUpload = video.isLocal && !video.synced && video.userId === userId;
+            if (pendingUpload && !uploadsFailed.has(video.id)) {
+                await saveVideoToCloud(video.id, video.blob, video.type, video.referenceId);
+            }
+        }
+    } finally {
+        uploadRetryRunning = false;
+    }
+}
+
+/** Manual upload, which also covers older videos saved before they had an owner. */
+function uploadLocalVideo(id) {
+    const video = vaultEntriesCache.find((v) => v.id === id);
+    const user = currentAuthUser;
+    if (!video || !video.blob || !user) return;
+
+    if (localDb) {
+        localDb.transaction([STORE_NAME], 'readwrite').objectStore(STORE_NAME).put({
+            id: video.id,
+            blob: video.blob,
+            type: video.type,
+            timestamp: video.timestamp,
+            referenceId: video.referenceId,
+            userId: user.id
+        });
+    }
+    uploadsFailed.delete(id);
+    void saveVideoToCloud(id, video.blob, video.type, video.referenceId);
+}
+
+window.addEventListener('online', () => {
+    uploadsFailed.clear();
+    void loadMediaVault();
+});
+
 async function loadMediaVault() {
     const vaultContainer = document.getElementById('vault-list');
     if (!vaultContainer) return;
@@ -1973,7 +2038,9 @@ async function loadMediaVault() {
             const transaction = localDb.transaction([STORE_NAME], 'readonly');
             transaction.objectStore(STORE_NAME).getAll().onsuccess = (e) => resolve(e.target.result);
         });
-        allVideos = localVideos.map((v) => ({
+        // Videos with no owner were saved before accounts were recorded on the device.
+        const visibleVideos = localVideos.filter((v) => !v.userId || v.userId === user?.id);
+        allVideos = visibleVideos.map((v) => ({
             ...v,
             isLocal: true,
             referenceId: v.referenceId || makeReferenceId(v.id),
@@ -1991,7 +2058,11 @@ async function loadMediaVault() {
             logEvent('VAULT: Could not load cloud recordings. Check login and network.', 't-warn');
         } else {
             rows.forEach((row) => {
-                if (allVideos.find((v) => v.id === row.id)) return;
+                const localCopy = allVideos.find((v) => v.id === row.id);
+                if (localCopy) {
+                    localCopy.synced = true;
+                    return;
+                }
                 allVideos.push({
                     id: row.id,
                     type: row.type,
@@ -2004,6 +2075,7 @@ async function loadMediaVault() {
                     _sortKey: new Date(row.created_at).getTime() || 0
                 });
             });
+            void retryPendingUploads(allVideos, user.id);
         }
     }
 
@@ -2119,7 +2191,7 @@ function deleteVideo(id, isLocal) {
             if (data && data.storage_backend === 'cloudinary' && data.public_id) {
                 // Delete from Cloudinary via our server-side API (keeps API secret off the client)
                 const idToken = await getAccessToken();
-                await fetch('/api/recording-delete-storage', {
+                await fetch(`${API_BASE}/api/recording-delete-storage`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

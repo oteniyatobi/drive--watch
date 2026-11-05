@@ -4,11 +4,14 @@
 // Env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 const { getUserIdFromRequest, AuthError } = require('./_lib/supabaseAdmin');
+const { handleCors } = require('./_lib/cors');
 const { getCloudinaryConfig, generateSignature } = require('./_lib/cloudinaryAdmin');
 
 const ID_RE = /^[a-zA-Z0-9_-]{6,200}$/;
 
 module.exports = async (req, res) => {
+    if (handleCors(req, res)) return;
+
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
