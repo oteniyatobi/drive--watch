@@ -1,0 +1,77 @@
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --color-navy: #0a2540;
+  --color-navy-soft: #16385a;
+  --color-teal: #5b8a9a;
+  --color-teal-dark: #3f6b7a;
+  --color-canvas: #f2f4f7;
+  --color-line: #e3e8ee;
+  --color-ink: #16202c;
+  --color-muted: #5c6b7a;
+
+  --color-good: #2d7d46;
+  --color-good-bg: #ebf5ee;
+  --color-warn: #a34a07;
+  --color-warn-bg: #fef3e2;
+  --color-critical: #b93226;
+  --color-critical-bg: #fdecea;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+a,
+select,
+input {
+  outline-color: var(--color-teal);
+}
+
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: #eef1f4;
+}
+
+/* Quietens the map so vehicles and routes stand out. */
+.leaflet-tile-pane {
+  filter: saturate(0.3) brightness(1.04);
+}
+
+.vehicle-marker {
+  background: none;
+  border: 0;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+}
